@@ -403,7 +403,8 @@ server.registerTool(
 server.registerTool('search_tp_cards', {
   title: 'Search TP cards by keyword or phrase in description',
   description: `Searches TP cards (UserStories or Bugs) by keyword or phrase or partial keyphrase in Card Description e.g. "Text Element", "Font field"
-    NOTE: after results are returned, try analyze and filter results by most relevant to what user is looking for in the description text`,
+    NOTE: after results are returned, try analyze and filter results by most relevant to what user is looking for in the description text
+    FALLBACK: if no results are found, try spliting phrase by spaces and searching for each word`,
   inputSchema: {
     keyword: z.string()
       .describe('Keyword or partial name or keyphrase to search for in description'),
