@@ -814,6 +814,50 @@ server.registerTool(
 )
 
 server.registerTool(
+  'create_user_story',
+  {
+    title: 'Create a new user story',
+    description: `Create a new user story in Targetprocess.`,
+    inputSchema: {
+      title: z.string()
+        .describe('User story title'),
+      description: z.string()
+        .optional()
+        .describe('Optional user story description (when provided, format as HTML)'),
+      featureId: z.string()
+        .min(5)
+        .max(6)
+        .optional()
+        .describe('Optional Feature ID to link this user story to (e.g. 145636)'),
+      releaseId: z.string()
+        .min(5)
+        .max(6)
+        .optional()
+        .describe('Optional Release ID to link this user story to (e.g. 145200)'),
+    },
+  },
+  async ({ title, description, featureId, releaseId }) => {
+    const userStoryResponse = await tp.createUserStory<TP.UserStory>({ title, description, featureId, releaseId });
+
+    if (!userStoryResponse) {
+      return {
+        content: [{
+          type: 'text',
+          text: `Failed to create user story "${title}"\n JSON: ${JSON.stringify(userStoryResponse, null, 2)}`
+        }]
+      };
+    }
+
+    return {
+      content: [{
+        type: 'text',
+        text: JSON.stringify(userStoryResponse)
+      }],
+    };
+  }
+)
+
+server.registerTool(
   'create_test_plan',
   {
     title: 'Create a new test plan linked to a TP card',
@@ -1190,7 +1234,6 @@ server.registerTool(
         }],
       };
     }
-
 
     const testCasesData = await Promise.all(testCaseItems.map(async (item) => {
       const testCaseSteps = await tp.getTestCaseSteps<TP.TpResponse<TP.TestStep>>(String(item.Id))

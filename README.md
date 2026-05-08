@@ -62,6 +62,9 @@ Cards — Write
 - `create_bug_based_on_card` — Create a bug linked to an existing user story or bug card (card object with id+type, title, bugContent, optional origin)  
 > [!NOTE]  
 > requires `TP_PROJECT_ID`, `TP_TEAM_ID`  
+- `create_user_story` — Create a new user story (title, optional description, optional featureId, optional releaseId)  
+> [!NOTE]  
+> requires `TP_PROJECT_ID`, `TP_TEAM_ID`  
 - `create_test_plan` — Create a test plan linked to a UserStory, Bug, or Feature (title, resourceId, optional resourceType, optional description/startDate/endDate)  
 > [!NOTE]  
 > requires `TP_PROJECT_ID`, 

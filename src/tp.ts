@@ -171,6 +171,23 @@ export class TpClient {
     }, bug) as T
   }
 
+  async createUserStory<T>({ title, description, featureId, releaseId }: { title: string, description?: string, featureId?: string, releaseId?: string }): Promise<T> {
+    const userStory: Record<string, any> = {
+      "Name": title,
+      "Project": { "Id": config.tp.projectId },
+      "assignedTeams": [{ "team": { "id": config.tp.teamId } }],
+    }
+
+    if (description) userStory["Description"] = description
+    if (featureId) userStory["Feature"] = { "Id": featureId }
+    if (releaseId) userStory["Release"] = { "Id": releaseId }
+
+    return this.post<any, T>({
+      pathParam: { "UserStories": '' },
+      param: { "format": "json" },
+    }, userStory) as T
+  }
+
   async createBugBasedOnUserStory<T>(title: string, userStoryId: string, bugContent: string): Promise<T> {
     const bug = {
       "Name": title,
