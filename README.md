@@ -46,9 +46,7 @@ Features
 - `get_not_covered_user_stories_in_feature` — Get user stories in a feature not yet covered by tests, includes `covered` field based on "Test Automation" custom field (id)
 
 Cards — Read
-- `get_user_story_statuses` — Get available EntityState transitions (next/previous states) for the UserStory workflow (no params needed)
-- `get_bug_statuses` — Get available EntityState transitions (next/previous states) for the Bug workflow (no params needed)
-- `get_card_status` — Get EntityState, TeamState, and assigned teams for a card (id, optional resourceType: UserStory | Bug | Feature, default: UserStory)
+- `get_card_current_status` — Get EntityState, TeamState, and assigned teams for a card (id, optional resourceType: UserStory | Bug | Feature, default: UserStory)
 - `get_bug_content` — Fetch full content of a bug by ID (id)
 - `get_user_story_content` — Fetch full content of a user story by ID (id)
 - `get_bug_comments` — Get comments on a bug (id, optional results)
@@ -58,7 +56,7 @@ Cards — Read
 
 Cards — Write
 - `add_comment` — Post a comment to any card (id, comment)
-- `create_bug` — Create a standalone bug (title, bugContent, optional origin, optional projectId, optional teamId)
+- `create_bug` — Create a standalone bug (title, bugContent, optional origin, optional projectId, optional teamId, optional entityStateId)
   > `origin` accepted values: `Production - Customer`, `Production - Internal`, `Pre-Release - Customer`, `Pre-Release - Internal`, `Regression - Dev01`, `Regression - Team Env`, `Manual QA` *(default)*, `Developer Raised`, `Operations`
 > [!NOTE]  
 > `projectId` and `teamId` are optional — fall back to `TP_PROJECT_ID` and `TP_TEAM_ID` from config  
@@ -78,6 +76,10 @@ Cards — Write
 Test Case Workflows
 - `write_test_cases` — Fetch a card (UserStory, Bug, or Feature) by ID and trigger the full test case writing workflow: Claude analyzes the card, generates detailed test cases covering happy path, edge cases, and error scenarios, creates a linked test plan via `create_test_plan`, then calls `add_test_cases_to_test_plan`. Each test case description contains Preconditions and Test Type as HTML; steps are passed as a structured array (resourceId, optional resourceType)
 - `add_test_cases_to_test_plan` — Add pre-generated test cases to an existing test plan. Each test case has a `name`, an HTML `description` (Preconditions and Test Type only), and a `steps` array of `{ description, result }` objects — steps are created via the TP test step API rather than embedded in the description (testPlanId, testCases array of {name, description, steps})
+
+Processes
+- `get_processes` — Get all Targetprocess processes (no params needed)
+- `get_process_workflows` — Get workflows for a specific process (processId)
 
 Projects
 - `get_projects` — Get all Targetprocess projects (no params needed)
