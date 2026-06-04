@@ -8,6 +8,11 @@ import { TpClient } from "./tp.js";
 import * as TP from "./types.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { config } from "./config.js";
+import { handleGetProjects } from "./handlers/get_projects.js";
+import { handleGetUserById } from "./handlers/get_user_by_id.js";
+import { handleGetCurrentReleases } from "./handlers/get_current_releases.js";
+import { handleGetBugContent } from "./handlers/get_bug_content.js";
+import { handleGetLoggedInUser } from "./handlers/get_logged_in_user.js";
 
 const server = new McpServer(
   {
@@ -102,34 +107,7 @@ server.registerTool(
     title: 'Get current releases',
     description: 'Get current releases',
   },
-  async ({ }) => {
-    const releases = await tp.getCurrentReleases<TP.TpResponse<TP.Release>>()
-
-    if (!releases) {
-      return {
-        content: [{
-          type: 'text',
-          text: `Failed to get current releases, JSON: ${JSON.stringify(releases, null, 2)}`
-        }],
-      }
-    }
-    const items = releases.Items || [];
-    if (items.length == 0) {
-      return {
-        content: [{
-          type: "text",
-          text: `No releases found`,
-        }],
-      };
-    }
-
-    return {
-      content: [{
-        type: 'text',
-        text: JSON.stringify(items)
-      }],
-    };
-  }
+  async () => handleGetCurrentReleases(tp)
 );
 
 server.registerTool(
@@ -472,52 +450,7 @@ server.registerTool(
         .describe('Bug card ID (e.g. 145789)')
     },
   },
-  async ({ id }) => {
-    const bug = await tp.getBug<TP.Bug>(id)
-
-    if (!bug) {
-      return {
-        content: [{
-          type: 'text',
-          text: `Failed to get bug, id: ${id}\n JSON: ${JSON.stringify(bug, null, 2)}`
-        }],
-      }
-    }
-
-    let bugResult = {
-      name: bug.Name,
-      id: bug.Id,
-      description: '',
-      origin: ''
-    }
-
-    try {
-      const dom = new JSDOM(`<html><body><div id="content">${bug.Description}</div></body></html>`)
-      const descriptionText = dom.window.document.getElementById('content')?.textContent
-
-      if (descriptionText) {
-        bugResult.description = descriptionText
-      }
-
-    } catch (error) {
-      console.error("Error parsing bug description:", error);
-      console.error("Returning bug without description");
-    }
-
-    try {
-      bugResult.origin = bug.CustomFields?.find((field) => field?.Value === "Origin")?.Value
-    } catch (error) {
-      console.error("Error parsing bug origin:", error);
-      console.error("Returning bug without origin");
-    }
-
-    return {
-      content: [{
-        type: 'text',
-        text: JSON.stringify(bugResult)
-      }],
-    };
-  }
+  async ({ id }) => handleGetBugContent(tp, id)
 );
 
 server.registerTool(
@@ -530,25 +463,7 @@ server.registerTool(
         .describe('User email'),
     },
   },
-  async ({ id }) => {
-    const user = await tp.getUser<TP.User>(id)
-
-    if (!user) {
-      return {
-        content: [{
-          type: 'text',
-          text: `Failed to get user, id: ${id}\n JSON: ${JSON.stringify(user, null, 2)}`
-        }],
-      }
-    }
-
-    return {
-      content: [{
-        type: 'text',
-        text: JSON.stringify(user)
-      }],
-    };
-  }
+  async ({ id }) => handleGetUserById(tp, id)
 );
 
 server.registerTool(
@@ -1421,35 +1336,7 @@ server.registerTool(
     title: 'Get projects',
     description: 'Get all Targetprocess projects',
   },
-  async ({ }) => {
-    const response = await tp.getProjects<TP.TpResponse<TP.Project>>()
-
-    if (!response) {
-      return {
-        content: [{
-          type: 'text',
-          text: `Failed to get projects, JSON: ${JSON.stringify(response, null, 2)}`
-        }],
-      }
-    }
-
-    const items = response.Items || [];
-    if (items.length === 0) {
-      return {
-        content: [{
-          type: 'text',
-          text: `No projects found`,
-        }],
-      };
-    }
-
-    return {
-      content: [{
-        type: 'text',
-        text: JSON.stringify(items.map((p) => ({ id: p.Id, name: p.Name })))
-      }],
-    };
-  }
+  async () => handleGetProjects(tp)
 );
 
 server.registerTool(
@@ -1495,35 +1382,7 @@ server.registerTool(
     title: 'Get logged in user',
     description: 'Get logged in user',
   },
-  async () => {
-    const ctx = await tp.getContext<TP.Context>()
-
-    if (!ctx) {
-      return {
-        content: [{
-          type: 'text',
-          text: `Failed to get context, JSON: ${JSON.stringify(ctx, null, 2)}`
-        }],
-      }
-    }
-
-    const loggedInUser = ctx.LoggedUser
-    if (!loggedInUser) {
-      return {
-        content: [{
-          type: 'text',
-          text: `Failed to get logged in user in this context, JSON: ${JSON.stringify(ctx, null, 2)}`
-        }],
-      }
-    }
-
-    return {
-      content: [{
-        type: 'text',
-        text: JSON.stringify(loggedInUser)
-      }],
-    };
-  }
+  async () => handleGetLoggedInUser(tp)
 );
 
 server.registerTool(
