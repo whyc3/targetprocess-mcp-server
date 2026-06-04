@@ -105,6 +105,7 @@ Teams
 User
 - `get_logged_in_user` — Get the currently logged-in user's info (no params needed)
 - `get_users` — Get all Targetprocess users (no params needed)
+- `get_user_by_id` — Get a single Targetprocess user by their ID (id)
 
 Developer Tools
 - `get_commit_message` — Returns a formatted commit message string for a task or bug ID (id, type: task | bug)

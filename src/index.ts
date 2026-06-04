@@ -520,12 +520,45 @@ server.registerTool(
   }
 );
 
-server.registerTool('get_users', {
-  title: 'Get users',
-  description: 'Get all users',
-},
+server.registerTool(
+  'get_user_by_id',
+  {
+    title: 'Get user by id',
+    description: 'Get user by id',
+    inputSchema: {
+      id: z.string()
+        .describe('User email'),
+    },
+  },
+  async ({ id }) => {
+    const user = await tp.getUser<TP.User>(id)
+
+    if (!user) {
+      return {
+        content: [{
+          type: 'text',
+          text: `Failed to get user, id: ${id}\n JSON: ${JSON.stringify(user, null, 2)}`
+        }],
+      }
+    }
+
+    return {
+      content: [{
+        type: 'text',
+        text: JSON.stringify(user)
+      }],
+    };
+  }
+);
+
+server.registerTool(
+  'get_users',
+  {
+    title: 'Get users',
+    description: 'Get all users',
+  },
   async () => {
-    const response = await tp.getUsers<TP.TpResponse<TP.LoggedUser>>()
+    const response = await tp.getUsers<TP.TpResponse<TP.User>>()
 
     if (!response) {
       return {

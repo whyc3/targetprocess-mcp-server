@@ -558,6 +558,51 @@ export interface LoggedUser {
   Kind: string
 }
 
+export interface User {
+  ResourceType: string
+  Id: number
+  FirstName: string
+  LastName: string
+  Email: string
+  Login: string
+  FullName: string
+  CreateDate: string
+  ModifyDate: string
+  DeleteDate: any
+  IsActive: boolean
+  IsAdministrator: boolean
+  Locale: any
+  Kind: string
+  GlobalId: string
+  IsIntegration: boolean
+  AccessStartDate: any
+  AccessEndDate: any
+  FrontdoorUserId: any
+  FrontdoorUserRoles: any
+  PasswordHashAlgorithm: string
+  EntityVersion: number
+  LastLoginDate: string
+  WeeklyAvailableHours: number
+  CurrentAllocation: number
+  CurrentAvailableHours: any
+  AvailableFrom: any
+  AvailableFutureAllocation: any
+  AvailableFutureHours: any
+  IsObserver: boolean
+  IsContributor: boolean
+  LegacySkills: any
+  ActiveDirectoryName: any
+  RichEditor: string
+  Role: Role
+  CustomFields: CustomField[]
+}
+
+export interface Role {
+  ResourceType: string
+  Id: number
+  Name: string
+}
+
 export interface TpResponseV2<TpResponseItemsV2> {
   next: string
   items: TpResponseItemsV2[]

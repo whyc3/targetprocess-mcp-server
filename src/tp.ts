@@ -328,6 +328,13 @@ export class TpClient {
     }, testPlan) as T
   }
 
+  async getUser<T>(userId: string): Promise<T> {
+    return this.get<T>({
+      pathParam: ["Users", userId],
+      param: { "format": "json" },
+    }) as T
+  }
+
   async getUsers<T>(): Promise<T> {
     return this.get<T>({
       pathParam: ["Users"],
