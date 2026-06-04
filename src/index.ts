@@ -2129,6 +2129,192 @@ Formats:
   }
 )
 
+server.registerTool(
+  'list_my_user_stories',
+  {
+    title: 'List my user stories',
+    description: 'List User Stories assigned to me. Use this to get an overview of current work. Optionally filter by state.',
+    inputSchema: {
+      state: z.string()
+        .optional()
+        .describe('Filter by state name (e.g. "Open", "In Progress", "Done")'),
+      take: z.number()
+        .default(25)
+        .optional()
+        .describe('Number of results to return, default is 25'),
+      skip: z.number()
+        .default(0)
+        .optional()
+        .describe('Pagination offset, default is 0'),
+    },
+  },
+  async ({ state, take, skip }) => {
+    const response = await tp.getMyUserStories<TP.TpResponse<TP.UserStory>>({ state, take, skip })
+
+    if (!response) {
+      return {
+        content: [{
+          type: 'text',
+          text: `Failed to get user stories, JSON: ${JSON.stringify(response, null, 2)}`
+        }],
+      }
+    }
+
+    const items = response.Items || []
+    if (items.length === 0) {
+      return {
+        content: [{
+          type: 'text',
+          text: `No user stories assigned to you${state ? ` with state "${state}"` : ''}`,
+        }],
+      }
+    }
+
+    return {
+      content: [{
+        type: 'text',
+        text: JSON.stringify(items)
+      }],
+    }
+  }
+)
+
+server.registerTool(
+  'list_my_bugs',
+  {
+    title: 'List my bugs',
+    description: 'List Bugs assigned to me. Optionally filter by state.',
+    inputSchema: {
+      state: z.string()
+        .optional()
+        .describe('Filter by state name (e.g. "Open", "In Progress", "Fixed")'),
+      take: z.number()
+        .default(25)
+        .optional()
+        .describe('Number of results to return, default is 25'),
+      skip: z.number()
+        .default(0)
+        .optional()
+        .describe('Pagination offset, default is 0'),
+    },
+  },
+  async ({ state, take, skip }) => {
+    const response = await tp.getMyBugs<TP.TpResponse<TP.Bug>>({ state, take, skip })
+
+    if (!response) {
+      return {
+        content: [{
+          type: 'text',
+          text: `Failed to get bugs, JSON: ${JSON.stringify(response, null, 2)}`
+        }],
+      }
+    }
+
+    const items = response.Items || []
+    if (items.length === 0) {
+      return {
+        content: [{
+          type: 'text',
+          text: `No bugs assigned to you${state ? ` with state "${state}"` : ''}`,
+        }],
+      }
+    }
+
+    return {
+      content: [{
+        type: 'text',
+        text: JSON.stringify(items)
+      }],
+    }
+  }
+)
+
+server.registerTool(
+  'log_time',
+  {
+    title: 'Log time on a Task, User Story, or Bug',
+    description: 'Log time spent working on a Task, User Story, or Bug. Call this after completing a task or at the end of a work session.',
+    inputSchema: {
+      entityId: z.string()
+        .min(1)
+        .describe('ID of the Task, User Story, or Bug to log time against (e.g. 145789)'),
+      entityType: z.enum(['Task', 'UserStory', 'Bug'])
+        .describe('Type of the entity'),
+      hours: z.number()
+        .positive()
+        .describe('Hours spent (can be decimal e.g. 1.5)'),
+      description: z.string()
+        .optional()
+        .describe('What was done — brief summary of the work'),
+      date: z.string()
+        .optional()
+        .describe('ISO date string, defaults to today (e.g. "2024-05-21")'),
+    },
+  },
+  async ({ entityId, entityType, hours, description, date }) => {
+    const response = await tp.logTime<TP.TimeLog>({ entityId, entityType, hours, description, date })
+
+    if (!response) {
+      return {
+        content: [{
+          type: 'text',
+          text: `Failed to log time on ${entityType} id: ${entityId}`
+        }],
+      }
+    }
+
+    return {
+      content: [{
+        type: 'text',
+        text: JSON.stringify(response)
+      }],
+    }
+  }
+)
+
+server.registerTool(
+  'get_my_time_logs',
+  {
+    title: 'Get my recent time log entries',
+    description: 'Get recent time log entries submitted by me.',
+    inputSchema: {
+      take: z.number()
+        .default(25)
+        .optional()
+        .describe('Number of entries to return, default is 25'),
+    },
+  },
+  async ({ take }) => {
+    const response = await tp.getMyTimeLogs<TP.TpResponse<TP.TimeLog>>(take)
+
+    if (!response) {
+      return {
+        content: [{
+          type: 'text',
+          text: `Failed to get time logs, JSON: ${JSON.stringify(response, null, 2)}`
+        }],
+      }
+    }
+
+    const items = response.Items || []
+    if (items.length === 0) {
+      return {
+        content: [{
+          type: 'text',
+          text: `No time logs found`,
+        }],
+      }
+    }
+
+    return {
+      content: [{
+        type: 'text',
+        text: JSON.stringify(items)
+      }],
+    }
+  }
+)
+
 async function main() {
   const transport = new StdioServerTransport();
   await server.connect(transport);

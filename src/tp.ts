@@ -749,6 +749,81 @@ export class TpClient {
     }, task) as T
   }
 
+  async logTime<T>({
+    entityId,
+    entityType,
+    hours,
+    description,
+    date,
+  }: {
+    entityId: string
+    entityType: 'Task' | 'UserStory' | 'Bug'
+    hours: number
+    description?: string
+    date?: string
+  }): Promise<T> {
+    const timestamp = date ? new Date(date).getTime() : Date.now()
+    const body: Record<string, any> = {
+      Spent: hours,
+      Date: `/Date(${timestamp})/`,
+      User: { Id: config.tp.ownerId },
+      Assignable: { Id: entityId, ResourceType: entityType },
+    }
+    if (description) body["Description"] = description
+
+    return this.post<any, T>({
+      pathParam: ["Times"],
+      param: { "format": "json" },
+    }, body) as T
+  }
+
+  async getMyTimeLogs<T>(take: number = 25): Promise<T> {
+    return this.get<T>({
+      pathParam: ["Times"],
+      param: {
+        "format": "json",
+        "where": `User.Id eq ${config.tp.ownerId}`,
+        "include": "[Id,Spent,Date,Description,Assignable[Id,Name,ResourceType]]",
+        "orderByDesc": "Date",
+        "take": take,
+      },
+    }) as T
+  }
+
+  async getMyUserStories<T>({ state, take = 25, skip = 0 }: { state?: string, take?: number, skip?: number }): Promise<T> {
+    const whereParts = [`AssignedUser.Id eq ${config.tp.ownerId}`]
+    if (state) whereParts.push(`EntityState.Name contains '${state}'`)
+
+    return this.get<T>({
+      pathParam: ["UserStories"],
+      param: {
+        "format": "json",
+        "where": whereParts.join(' and '),
+        "include": "[Id,Name,EntityState[Name],Effort,Project[Name],Feature[Id,Name],CreateDate,ModifyDate]",
+        "orderByDesc": "ModifyDate",
+        "take": take,
+        "skip": skip,
+      },
+    }) as T
+  }
+
+  async getMyBugs<T>({ state, take = 25, skip = 0 }: { state?: string, take?: number, skip?: number }): Promise<T> {
+    const whereParts = [`AssignedUser.Id eq ${config.tp.ownerId}`]
+    if (state) whereParts.push(`EntityState.Name contains '${state}'`)
+
+    return this.get<T>({
+      pathParam: ["Bugs"],
+      param: {
+        "format": "json",
+        "where": whereParts.join(' and '),
+        "include": "[Id,Name,EntityState[Name],Severity[Name],Priority[Name],Project[Name],UserStory[Id,Name],CreateDate,ModifyDate]",
+        "orderByDesc": "ModifyDate",
+        "take": take,
+        "skip": skip,
+      },
+    }) as T
+  }
+
   async addAttachedFile(generalId: string, source: { filePath: string } | { fileContent: string; fileName: string }): Promise<string | null> {
     let blob: Blob
     let fileName: string

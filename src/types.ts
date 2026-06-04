@@ -724,6 +724,20 @@ export interface CardStatus {
   teams: CardStatusAssignedTeam[]
 }
 
+export interface TimeLog {
+  ResourceType: string
+  Id: number
+  Spent: number
+  Date: string
+  Description: string | null
+  Assignable: {
+    ResourceType: string
+    Id: number
+    Name: string
+  }
+  User: Owner
+}
+
 export interface Context {
   ResourceType: string
   Acid: string
