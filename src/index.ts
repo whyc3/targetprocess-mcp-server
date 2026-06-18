@@ -40,6 +40,9 @@ import { handleGetFeatureUserStories } from "./handlers/get_feature_user_stories
 import { handleGetUserStoryBugs } from "./handlers/get_user_story_bugs.js";
 import { handleGetCardCurrentStatus } from "./handlers/get_card_current_status.js";
 import { handleUpdateUserStorySubState } from "./handlers/update_user_story_sub_state.js";
+import { handleGetCardRelations } from "./handlers/get_card_relations.js";
+import { handleCreateCardRelation } from "./handlers/create_card_relation.js";
+import { handleDeleteCardRelation } from "./handlers/delete_card_relation.js";
 
 const server = new McpServer(
   {
@@ -681,28 +684,156 @@ server.registerTool(
 )
 
 server.registerTool(
-  'create_epic',
+  'create_formatted_user_story',
   {
-    title: 'Create a new epic',
-    description: `Create a new Epic in Targetprocess.`,
+    title: 'Create a formatted user story',
+    description: `Create a new user story in Targetprocess with a structured, template-driven description.
+      The description is assembled from discrete sections (header, definitions, acceptance criteria, Gherkin scenarios, edge cases, references, notes) and stored as HTML.
+      CRITICAL WORKFLOW: Before calling this tool, you MUST follow these steps:
+        1) IF the user specified a feature by name (not ID), call "get_feature_user_stories" or "search_tp_cards" to resolve the feature ID;
+        2) IF the user specified a release by name (not ID), call "get_current_releases" to resolve the release ID;
+        3) IF the user specified a team by name (not ID), call "get_teams" to find the matching team and use its ID as teamId;
+        4) IF the user specified a project by name (not ID), call "get_projects" to find the matching project and use its ID as projectId;`,
     inputSchema: {
       title: z.string()
-        .describe('Epic title'),
-      description: z.string()
+        .describe('User story title'),
+      header: z.object({
+        storyId: z.string()
+          .optional()
+          .describe('Story ID if already known (e.g. US-12345), omit for new stories'),
+        asA: z.string()
+          .describe('Role or persona — the "As a ..." part'),
+        iWant: z.string()
+          .describe('Goal — the "I want ..." part'),
+        soThat: z.string()
+          .describe('Benefit — the "so that ..." part'),
+      })
+        .describe('Story header following the As a / I want / so that format'),
+      definitions: z.array(z.object({
+        term: z.string()
+          .describe('The term, module name, or feature flag being defined'),
+        description: z.string()
+          .describe('Explanation of the term'),
+      })),
+      acceptanceCriteria: z.array(z.string())
+        .min(1)
+        .describe('Bullet checklist items for quick review sign-off — each string is one criterion'),
+      scenarios: z.array(z.object({
+        name: z.string()
+          .describe('Scenario name'),
+        steps: z.array(z.string())
+          .min(1)
+          .describe('Gherkin steps — each string is a full step line, e.g. "Given I am on the login page"'),
+      }))
+        .min(1)
+        .describe('Gherkin scenario blocks, one per behavior branch'),
+      examplesTable: z.string()
         .optional()
-        .describe('Optional epic description (when provided, format as HTML)'),
+        .describe('Examples table for parameterized or matrix behavior (plain text or Gherkin Examples: table format)'),
+      edgeCases: z.array(z.object({
+        name: z.string()
+          .describe('Edge case scenario name'),
+        steps: z.array(z.string())
+          .min(1)
+          .describe('Gherkin steps for this edge case'),
+      }))
+        .optional()
+        .describe('Explicit edge case or boundary condition scenarios'),
+      references: z.string()
+        .optional()
+        .describe('Links to Axure mockups or other external references (not inline in prose)'),
+      notes: z.string()
+        .optional()
+        .describe('Anything that helps understand the story context but does not fit other sections'),
+      featureId: z.string()
+        .min(5)
+        .max(6)
+        .optional()
+        .describe('Optional Feature ID to link this user story to (e.g. 145636)'),
       releaseId: z.string()
         .min(5)
         .max(6)
         .optional()
-        .describe('Optional Release ID to link this epic to (e.g. 145200)'),
+        .describe('Optional Release ID to link this user story to (e.g. 145200)'),
       projectId: z.string()
         .optional()
         .describe('Optional Project ID — defaults to TP_PROJECT_ID from config'),
+      teamId: z.string()
+        .optional()
+        .describe('Optional Team ID — defaults to TP_TEAM_ID from config'),
     },
   },
-  async ({ title, description, releaseId, projectId }) =>
-    handleCreateEpic(tp, { title, description, releaseId, projectId })
+  async ({ title, header, definitions, acceptanceCriteria, scenarios, examplesTable, edgeCases, references, notes, featureId, releaseId, projectId, teamId }) => {
+    const gherkinBlock = (items: { name: string; steps: string[] }[]) =>
+      items.map((s, indx) => `<div><strong>Scenario ${indx + 1} - ${s.name}:</strong></div><div>${s.steps.map(step => `<div>\t${step}</div>`).join('\n')}</div>`).join('\n')
+
+    const parts: string[] = ['<div>']
+
+    parts.push('<h3>Header</h3>')
+    if (header.storyId) parts.push(`<p><strong>Story ID:</strong> ${header.storyId}</p>`)
+    parts.push(`<p>As a ${header.asA} / I want ${header.iWant} / so that ${header.soThat}</p>`)
+
+    if (definitions) {
+      parts.push('<h3>Definitions</h3>')
+      parts.push(`<div>`)
+      for (const def of definitions) {
+        parts.push(`<p><strong>${def.term}</strong> — ${def.description}</p>`)
+      }
+      parts.push(`</div>`)
+    }
+
+    parts.push('<h3>Acceptance Criteria</h3>')
+    parts.push('<ol>')
+    for (const criterion of acceptanceCriteria) {
+      parts.push(`<li>${criterion}</li>`)
+    }
+    parts.push('</ol>')
+
+    parts.push('<h3>Scenarios</h3>')
+    parts.push(gherkinBlock(scenarios))
+
+    if (examplesTable) {
+      parts.push('<h3>Examples</h3>')
+      parts.push(`<pre>${examplesTable}</pre>`)
+    }
+
+    if (edgeCases && edgeCases.length > 0) {
+      parts.push('<h3>Edge Cases</h3>')
+      parts.push(gherkinBlock(edgeCases))
+    }
+
+    if (references) {
+      parts.push('<h3>References</h3>')
+      parts.push(`<p>${references}</p>`)
+    }
+
+    if (notes) {
+      parts.push('<h3>Notes</h3>')
+      parts.push(`<p>${notes}</p>`)
+    }
+
+    parts.push('</div>')
+
+    const description = parts.join('\n')
+
+    const userStoryResponse = await tp.createUserStory<TP.UserStory>({ title, description, featureId, releaseId, projectId, teamId });
+
+    if (!userStoryResponse) {
+      return {
+        content: [{
+          type: 'text',
+          text: `Failed to create formatted user story "${title}"\n JSON: ${JSON.stringify(userStoryResponse, null, 2)}`
+        }]
+      };
+    }
+
+    return {
+      content: [{
+        type: 'text',
+        text: JSON.stringify(userStoryResponse)
+      }],
+    };
+  }
 )
 
 server.registerTool(
@@ -737,6 +868,32 @@ server.registerTool(
   async ({ title, description, epicId, releaseId, projectId, teamId }) =>
     handleCreateFeature(tp, { title, description, epicId, releaseId, projectId, teamId })
 )
+
+server.registerTool(
+  'create_epic',
+  {
+    title: 'Create a new epic',
+    description: `Create a new Epic in Targetprocess.`,
+    inputSchema: {
+      title: z.string()
+        .describe('Epic title'),
+      description: z.string()
+        .optional()
+        .describe('Optional epic description (when provided, format as HTML)'),
+      releaseId: z.string()
+        .min(5)
+        .max(6)
+        .optional()
+        .describe('Optional Release ID to link this epic to (e.g. 145200)'),
+      projectId: z.string()
+        .optional()
+        .describe('Optional Project ID -- defaults to TP_PROJECT_ID from config'),
+    },
+  },
+  async ({ title, description, releaseId, projectId }) =>
+    handleCreateEpic(tp, { title, description, releaseId, projectId })
+)
+
 
 server.registerTool(
   'create_test_plan',
@@ -1357,6 +1514,84 @@ server.registerTool(
     },
   },
   async ({ id, resourceType = 'UserStory' }) => handleGetCardCurrentStatus(tp, id, resourceType)
+)
+
+server.registerTool(
+  'get_card_relations',
+  {
+    title: 'Get card relations',
+    description: `Get all relations (Dependency, Blocker, Relation, Link, Duplicate) for a TP card (UserStory, Bug, Feature, etc.) by its ID.
+      Each relation shows the related card and the direction:
+      - "outbound" — this card is the Master (e.g. for Dependency, the related card depends on this card)
+      - "inbound" — this card is the Slave (e.g. for Dependency, this card depends on the related card)`,
+    inputSchema: {
+      id: z.string()
+        .min(5)
+        .max(6)
+        .describe('TP card ID (e.g. 145789)'),
+    },
+  },
+  async ({ id }) => handleGetCardRelations(tp, id)
+)
+
+server.registerTool(
+  'get_relation_types',
+  {
+    title: 'Get relation types',
+    description: 'Get all relation types available in this Targetprocess instance (id + name). Use this to find the correct relationType name for "create_card_relation".',
+  },
+  async () => {
+    const response = await tp.getRelationTypes<TP.TpResponse<TP.RelationType>>()
+
+    if (!response) {
+      return {
+        content: [{ type: 'text', text: `Failed to get relation types` }],
+      }
+    }
+
+    const items = (response.Items || []).map((t) => ({ id: t.Id, name: t.Name }))
+    return {
+      content: [{ type: 'text', text: JSON.stringify(items) }],
+    }
+  }
+)
+
+server.registerTool(
+  'create_card_relation',
+  {
+    title: 'Create a relation between two cards',
+    description: `Create a relation between two TP cards (UserStory, Bug, Feature, etc.).
+      The Master is the source of the relation and the Slave is the target — e.g. for a "Depends on" relation, the Slave depends on the Master (Master must be done first).
+      NOTE: relationType is matched by name against this instance's relation types. If unsure of the exact name, call "get_relation_types" first. The handler resolves the name to its ID before creating the relation.`,
+    inputSchema: {
+      masterId: z.string()
+        .min(5)
+        .max(6)
+        .describe('Master card ID — the source of the relation (e.g. 145789)'),
+      slaveId: z.string()
+        .min(5)
+        .max(6)
+        .describe('Slave card ID — the target of the relation (e.g. 145790)'),
+      relationType: z.string()
+        .optional()
+        .describe('Relation type name as defined in this instance (e.g. "Depends on", "Relate to"). Resolve exact names via "get_relation_types". Defaults to "Depends on".'),
+    },
+  },
+  async ({ masterId, slaveId, relationType }) => handleCreateCardRelation(tp, { masterId, slaveId, relationType })
+)
+
+server.registerTool(
+  'delete_card_relation',
+  {
+    title: 'Delete a relation between two cards',
+    description: `Delete (remove) a relation between two TP cards by the relation's own ID — not the card IDs.
+      To find the relationId, call "get_card_relations" for one of the cards; each entry includes a "relationId" field.`,
+    inputSchema: {
+      relationId: z.string()
+        .describe('The relation ID to delete (the "relationId" field from "get_card_relations", e.g. 20748)'),
+    },
+  },
+  async ({ relationId }) => handleDeleteCardRelation(tp, relationId)
 )
 
 server.registerTool(

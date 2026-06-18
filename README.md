@@ -61,6 +61,8 @@ Cards — Read
 - `get_bug_comments` — Get comments on a bug (id, optional results)
 - `get_user_story_comments` — Get comments on a user story (id, optional results)
 - `get_user_story_test_cases` — Fetch the linked test plan and all its test cases (with steps) for a user story (resourceId)
+- `get_card_relations` — Get all relations (Dependency, Blocker, Relation, Link, Duplicate) for a card, with direction and the related card (id)
+- `get_relation_types` — List the relation types available in this instance (id + name); use to find the `relationType` name for `create_card_relation` (no params)
 - `search_tp_cards` — Search TP cards by keyword or phrase in description (keyword, optional entityType: UserStories | Bugs, default: UserStories)
 
 Cards — Write
@@ -70,6 +72,11 @@ Cards — Write
   > Resolve state name → ID via `get_bug_workflows` before passing `entityStateId`
 - `update_user_story` — Update an existing user story (id, optional title, optional description, optional projectId, optional teamId, optional entityStateId)
   > Resolve state name → ID via `get_user_story_workflows` before passing `entityStateId`
+- `create_card_relation` — Create a relation between two cards (masterId, slaveId, optional relationType name, default: "Depends on")
+  > The Slave depends on the Master — the Master must be done first
+  > `relationType` is matched by name against this instance's types; resolve exact names via `get_relation_types` (it's resolved to an ID before the API call, since TP rejects relation types passed by name)
+- `delete_card_relation` — Remove a relation by its relation ID (relationId)
+  > Get the `relationId` from `get_card_relations` first — it's the relation's own ID, not a card ID
 - `update_user_story_state` — Update the sub-state (team assignment entity state) for a user story (id, optional entityStateId, optional teamId, optional teamAssignmentId)
   > 1. Call `get_user_story_content` first to find the assigned team and `teamAssignmentId`
   > 2. Call `get_user_story_workflows` to resolve the target state name → `entityStateId`
@@ -84,6 +91,11 @@ Cards — Write
 - `create_user_story` — Create a new user story (title, optional description, optional featureId, optional releaseId, optional projectId, optional teamId)  
 > [!NOTE]  
 > `projectId` and `teamId` are optional — fall back to `TP_PROJECT_ID` and `TP_TEAM_ID` from config  
+- `create_formatted_user_story` — Create a new user story with a structured template description (title, header object with asA/iWant/soThat, acceptanceCriteria array, scenarios array with Gherkin steps, optional definitions, examplesTable, edgeCases, references, notes, optional featureId, releaseId, projectId, teamId)  
+> [!NOTE]  
+> `projectId` and `teamId` are optional — fall back to `TP_PROJECT_ID` and `TP_TEAM_ID` from config  
+- `format_existing_user_story` — Re-format the description of an existing user story using the structured template (id, header object with asA/iWant/soThat, acceptanceCriteria array, scenarios array with Gherkin steps, optional title, definitions, examplesTable, edgeCases, references, notes)
+  > Call `get_user_story_content` first to read the current content, then reconstruct the structured fields before calling this tool
 - `create_feature` — Create a new feature (title, optional description, optional epicId, optional releaseId, optional projectId, optional teamId)  
 > [!NOTE]  
 > `projectId` and `teamId` are optional — fall back to `TP_PROJECT_ID` and `TP_TEAM_ID` from config  
