@@ -26,7 +26,7 @@ import { handleAddComment } from "./handlers/add_comment.js";
 import { handleGetUserStoryComments } from "./handlers/get_user_story_comments.js";
 import { handleGetBugComments } from "./handlers/get_bug_comments.js";
 import { handleCreateBug } from "./handlers/create_bug.js";
-// import { handleCreateUserStory } from "./handlers/create_user_story.js";
+import { handleCreateUserStory } from "./handlers/create_user_story.js";
 import { handleCreateFeature } from "./handlers/create_feature.js";
 import { handleCreateTask } from "./handlers/create_task.js";
 import { handleUpdateBug } from "./handlers/update_bug.js";
@@ -42,7 +42,6 @@ import { handleUpdateUserStorySubState } from "./handlers/update_user_story_sub_
 import { handleGetCardRelations } from "./handlers/get_card_relations.js";
 import { handleCreateCardRelation } from "./handlers/create_card_relation.js";
 import { handleDeleteCardRelation } from "./handlers/delete_card_relation.js";
-import { handleFormatExistingUserStory } from "./handlers/format_existing_user_story.js";
 
 const server = new McpServer(
   {
@@ -650,41 +649,41 @@ server.registerTool(
     handleCreateBug(tp, { title, bugContent, origin, projectId, teamId, entityStateId })
 )
 
-// server.registerTool(
-//   'create_user_story',
-//   {
-//     title: 'Create a new user story',
-//     description: `Create a new user story in Targetprocess.`,
-//     inputSchema: {
-//       title: z.string()
-//         .describe('User story title'),
-//       description: z.string()
-//         .optional()
-//         .describe('Optional user story description (when provided, format as HTML)'),
-//       featureId: z.string()
-//         .min(5)
-//         .max(6)
-//         .optional()
-//         .describe('Optional Feature ID to link this user story to (e.g. 145636)'),
-//       releaseId: z.string()
-//         .min(5)
-//         .max(6)
-//         .optional()
-//         .describe('Optional Release ID to link this user story to (e.g. 145200)'),
-//       projectId: z.string()
-//         .optional()
-//         .describe('Optional Project ID — defaults to TP_PROJECT_ID from config'),
-//       teamId: z.string()
-//         .optional()
-//         .describe('Optional Team ID — defaults to TP_TEAM_ID from config'),
-//     },
-//   },
-//   async ({ title, description, featureId, releaseId, projectId, teamId }) =>
-//     handleCreateUserStory(tp, { title, description, featureId, releaseId, projectId, teamId })
-// )
-
 server.registerTool(
   'create_user_story',
+  {
+    title: 'Create a new user story',
+    description: `Create a new user story in Targetprocess.`,
+    inputSchema: {
+      title: z.string()
+        .describe('User story title'),
+      description: z.string()
+        .optional()
+        .describe('Optional user story description (when provided, format as HTML)'),
+      featureId: z.string()
+        .min(5)
+        .max(6)
+        .optional()
+        .describe('Optional Feature ID to link this user story to (e.g. 145636)'),
+      releaseId: z.string()
+        .min(5)
+        .max(6)
+        .optional()
+        .describe('Optional Release ID to link this user story to (e.g. 145200)'),
+      projectId: z.string()
+        .optional()
+        .describe('Optional Project ID — defaults to TP_PROJECT_ID from config'),
+      teamId: z.string()
+        .optional()
+        .describe('Optional Team ID — defaults to TP_TEAM_ID from config'),
+    },
+  },
+  async ({ title, description, featureId, releaseId, projectId, teamId }) =>
+    handleCreateUserStory(tp, { title, description, featureId, releaseId, projectId, teamId })
+)
+
+server.registerTool(
+  'create_formatted_user_story',
   {
     title: 'Create a formatted user story',
     description: `Create a new user story in Targetprocess with a structured, template-driven description.
@@ -1704,78 +1703,6 @@ server.registerTool(
     },
   },
   async ({ take }) => handleGetMyTimeLogs(tp, take)
-)
-
-server.registerTool(
-  'format_existing_user_story',
-  {
-    title: 'Format an existing user story',
-    description: `Re-format the description of an existing user story using the structured template (Header, Definitions, Acceptance Criteria, Gherkin Scenarios, Edge Cases, References, Notes).
-      This is identical in structure to "create_user_story" but updates an existing card instead of creating a new one.
-      CRITICAL WORKFLOW: Before calling this tool, you MUST follow these steps:
-        1) Call "get_user_story_content" to retrieve the current content of the user story;
-        2) Extract or derive the structured fields (header, definitions, acceptanceCriteria, scenarios, etc.) from the existing description;
-        3) Optionally update the title if the user requested it.`,
-    inputSchema: {
-      id: z.string()
-        .min(5)
-        .max(6)
-        .describe('ID of the user story to format (e.g. 145789)'),
-      title: z.string()
-        .optional()
-        .describe('Updated user story title — omit to keep the existing title'),
-      header: z.object({
-        storyId: z.string()
-          .optional()
-          .describe('Story ID if already known (e.g. US-12345), omit if not applicable'),
-        asA: z.string()
-          .describe('Role or persona — the "As a ..." part'),
-        iWant: z.string()
-          .describe('Goal — the "I want ..." part'),
-        soThat: z.string()
-          .describe('Benefit — the "so that ..." part'),
-      })
-        .describe('Story header following the As a / I want / so that format'),
-      definitions: z.array(z.object({
-        term: z.string()
-          .describe('The term, module name, or feature flag being defined'),
-        description: z.string()
-          .describe('Explanation of the term'),
-      })),
-      acceptanceCriteria: z.array(z.string())
-        .min(1)
-        .describe('Bullet checklist items for quick review sign-off — each string is one criterion'),
-      scenarios: z.array(z.object({
-        name: z.string()
-          .describe('Scenario name'),
-        steps: z.array(z.string())
-          .min(1)
-          .describe('Gherkin steps — each string is a full step line, e.g. "Given I am on the login page"'),
-      }))
-        .min(1)
-        .describe('Gherkin scenario blocks, one per behavior branch'),
-      examplesTable: z.string()
-        .optional()
-        .describe('Examples table for parameterized or matrix behavior (plain text or Gherkin Examples: table format)'),
-      edgeCases: z.array(z.object({
-        name: z.string()
-          .describe('Edge case scenario name'),
-        steps: z.array(z.string())
-          .min(1)
-          .describe('Gherkin steps for this edge case'),
-      }))
-        .optional()
-        .describe('Explicit edge case or boundary condition scenarios'),
-      references: z.string()
-        .optional()
-        .describe('Links to Axure mockups or other external references (not inline in prose)'),
-      notes: z.string()
-        .optional()
-        .describe('Anything that helps understand the story context but does not fit other sections'),
-    },
-  },
-  async ({ id, title, header, definitions, acceptanceCriteria, scenarios, examplesTable, edgeCases, references, notes }) =>
-    handleFormatExistingUserStory(tp, { id, title, header, definitions, acceptanceCriteria, scenarios, examplesTable, edgeCases, references, notes })
 )
 
 async function main() {
