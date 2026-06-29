@@ -112,6 +112,11 @@ Test Case Workflows
 - `get_test_cases_by_id` — Short alias for `get_test_plan_test_cases_by_id` (id)
 - `get_test_plan_test_cases_with_steps_by_id` — Get the test cases belonging to a test plan by plan ID, including nested child test plans/containers, containing test plan metadata, and steps (id)
 - `get_test_case_by_id` — Get a single Targetprocess Test Case by ID, including plain-text description and steps (id)
+- `update_test_case_by_id` — Update a single Targetprocess Test Case by ID; supports `name` and `description` only (id, optional name, optional description)
+- `delete_test_case_by_id` — Delete a single Targetprocess Test Case by ID (id)
+- `add_test_case_step_by_id` — Add a new step to a test case; despite name consistency, this takes `testCaseId`, not a step ID (testCaseId, description, result)
+- `update_test_case_step_by_id` — Update a single Targetprocess Test Step by ID; supports `description` and `result` only (id, optional description, optional result)
+- `delete_test_case_step_by_id` — Delete a single Targetprocess Test Step by ID (id)
 - `write_test_cases` — Fetch a card (UserStory, Bug, or Feature) by ID and trigger the full test case writing workflow: Claude analyzes the card, generates detailed test cases covering happy path, edge cases, and error scenarios, creates a linked test plan via `create_test_plan`, then calls `add_test_cases_to_test_plan`. Each test case description contains Preconditions and Test Type as HTML; steps are passed as a structured array (resourceId, optional resourceType)
 - `add_test_cases_to_test_plan` — Add pre-generated test cases to an existing test plan. Each test case has a `name`, an HTML `description` (Preconditions and Test Type only), and a `steps` array of `{ description, result }` objects — steps are created via the TP test step API rather than embedded in the description (testPlanId, testCases array of {name, description, steps})
 
@@ -236,4 +241,4 @@ npx vitest            # watch mode
 | `creation_tools.test.ts` | `create_bug`, `create_user_story`, `create_feature`, `create_task`, `update_bug`, `update_user_story_state` |
 | `my_work_tools.test.ts` | `get_in_progress_tasks_and_bugs`, `list_my_user_stories`, `list_my_bugs`, `log_time`, `get_my_time_logs` |
 | `entity_tools.test.ts` | `get_feature_user_stories`, `get_user_story_bugs`, `get_card_current_status` |
-| `test_plan_tools.test.ts` | `get_test_plan_by_id`, `get_test_plan_test_cases_by_id`, `get_test_cases_by_id`, `get_test_plan_test_cases_with_steps_by_id`, `get_test_case_by_id` |
+| `test_plan_tools.test.ts` | `get_test_plan_by_id`, `get_test_plan_test_cases_by_id`, `get_test_cases_by_id`, `get_test_plan_test_cases_with_steps_by_id`, `get_test_case_by_id`, `update_test_case_by_id`, `delete_test_case_by_id`, `add_test_case_step_by_id`, `update_test_case_step_by_id`, `delete_test_case_step_by_id` |

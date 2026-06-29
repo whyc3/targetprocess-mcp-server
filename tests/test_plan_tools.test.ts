@@ -4,12 +4,23 @@ import { handleGetTestPlanById } from '../src/handlers/get_test_plan_by_id.js'
 import { handleGetTestPlanTestCasesById } from '../src/handlers/get_test_plan_test_cases_by_id.js'
 import { handleGetTestPlanTestCasesWithStepsById } from '../src/handlers/get_test_plan_test_cases_with_steps_by_id.js'
 import { handleGetTestCaseById } from '../src/handlers/get_test_case_by_id.js'
+import { handleUpdateTestCaseById } from '../src/handlers/update_test_case_by_id.js'
+import { handleDeleteTestCaseById } from '../src/handlers/delete_test_case_by_id.js'
+import { handleAddTestCaseStepById } from '../src/handlers/add_test_case_step_by_id.js'
+import { handleUpdateTestCaseStepById } from '../src/handlers/update_test_case_step_by_id.js'
+import { handleDeleteTestCaseStepById } from '../src/handlers/delete_test_case_step_by_id.js'
 
 const mockTp = {
   getTestPlan: vi.fn(),
   getTestPlanTestCases: vi.fn(),
   getTestCase: vi.fn(),
   getTestCaseSteps: vi.fn(),
+  updateTestCase: vi.fn(),
+  deleteTestCase: vi.fn(),
+  addTestStep: vi.fn(),
+  getTestStep: vi.fn(),
+  updateTestStep: vi.fn(),
+  deleteTestStep: vi.fn(),
 } as unknown as TpClient
 
 beforeEach(() => {
@@ -195,6 +206,186 @@ describe('handleGetTestCaseById', () => {
   })
 })
 
+describe('handleUpdateTestCaseById', () => {
+  it('updates test case metadata', async () => {
+    vi.mocked(mockTp.updateTestCase).mockResolvedValue({ Id: 987654, Name: 'Updated case' } as any)
+
+    const result = await handleUpdateTestCaseById(mockTp, {
+      id: '987654',
+      name: 'Updated case',
+      description: '<p>Updated description</p>',
+    })
+    const parsed = JSON.parse(result.content[0].text)
+
+    expect(parsed.Id).toBe(987654)
+    expect(mockTp.updateTestCase).toHaveBeenCalledWith({
+      id: '987654',
+      name: 'Updated case',
+      description: '<p>Updated description</p>',
+    })
+  })
+
+  it('returns no-op message when no fields were provided', async () => {
+    const result = await handleUpdateTestCaseById(mockTp, { id: '987654' })
+
+    expect(result.content[0].text).toContain('Nothing to update for test case id: 987654')
+    expect(mockTp.updateTestCase).not.toHaveBeenCalled()
+  })
+
+  it('returns failure message when update fails', async () => {
+    vi.mocked(mockTp.updateTestCase).mockResolvedValue(null as any)
+
+    const result = await handleUpdateTestCaseById(mockTp, { id: '987654', name: 'Updated case' })
+
+    expect(result.content[0].text).toContain('Failed to update test case id: 987654')
+  })
+})
+
+describe('handleDeleteTestCaseById', () => {
+  it('returns deleted confirmation on success', async () => {
+    vi.mocked(mockTp.deleteTestCase).mockResolvedValue({
+      ok: true,
+      data: { Id: 987654 },
+    } as any)
+
+    const result = await handleDeleteTestCaseById(mockTp, '987654')
+    const parsed = JSON.parse(result.content[0].text)
+
+    expect(parsed.deleted).toBe(true)
+    expect(parsed.testCaseId).toBe(987654)
+    expect(mockTp.deleteTestCase).toHaveBeenCalledWith('987654')
+  })
+
+  it('surfaces HTTP status and response body on failure', async () => {
+    vi.mocked(mockTp.deleteTestCase).mockResolvedValue({
+      ok: false,
+      status: 404,
+      body: '{"Status":"NotFound","Message":"TestCase 987654 not found"}',
+    } as any)
+
+    const result = await handleDeleteTestCaseById(mockTp, '987654')
+
+    expect(result.content[0].text).toContain('Failed to delete test case id: 987654')
+    expect(result.content[0].text).toContain('HTTP status: 404')
+    expect(result.content[0].text).toContain('TestCase 987654 not found')
+  })
+})
+
+describe('handleAddTestCaseStepById', () => {
+  it('adds a step to a test case', async () => {
+    vi.mocked(mockTp.addTestStep).mockResolvedValue({ Id: 4321, Description: 'Click save', Result: 'Changes persist' } as any)
+
+    const result = await handleAddTestCaseStepById(mockTp, {
+      testCaseId: '987654',
+      description: 'Click save',
+      result: 'Changes persist',
+    })
+    const parsed = JSON.parse(result.content[0].text)
+
+    expect(parsed.Id).toBe(4321)
+    expect(mockTp.addTestStep).toHaveBeenCalledWith('987654', {
+      description: 'Click save',
+      result: 'Changes persist',
+    })
+  })
+
+  it('returns failure message when add step fails', async () => {
+    vi.mocked(mockTp.addTestStep).mockResolvedValue(null as any)
+
+    const result = await handleAddTestCaseStepById(mockTp, {
+      testCaseId: '987654',
+      description: 'Click save',
+      result: 'Changes persist',
+    })
+
+    expect(result.content[0].text).toContain('Failed to add test step to test case id: 987654')
+  })
+})
+
+describe('handleUpdateTestCaseStepById', () => {
+  it('merges missing fields from existing step before update', async () => {
+    vi.mocked(mockTp.getTestStep).mockResolvedValue({
+      Id: 4321,
+      Description: 'Current action',
+      Result: 'Current result',
+    } as any)
+    vi.mocked(mockTp.updateTestStep).mockResolvedValue({ Id: 4321, Description: 'Updated action', Result: 'Current result' } as any)
+
+    const result = await handleUpdateTestCaseStepById(mockTp, {
+      id: '4321',
+      description: 'Updated action',
+    })
+    const parsed = JSON.parse(result.content[0].text)
+
+    expect(parsed.Id).toBe(4321)
+    expect(mockTp.getTestStep).toHaveBeenCalledWith('4321')
+    expect(mockTp.updateTestStep).toHaveBeenCalledWith({
+      id: '4321',
+      description: 'Updated action',
+      result: 'Current result',
+    })
+  })
+
+  it('returns no-op message when no fields were provided', async () => {
+    const result = await handleUpdateTestCaseStepById(mockTp, { id: '4321' })
+
+    expect(result.content[0].text).toContain('Nothing to update for test step id: 4321')
+    expect(mockTp.getTestStep).not.toHaveBeenCalled()
+  })
+
+  it('returns failure message when existing step cannot be loaded', async () => {
+    vi.mocked(mockTp.getTestStep).mockResolvedValue(null as any)
+
+    const result = await handleUpdateTestCaseStepById(mockTp, { id: '4321', result: 'Updated result' })
+
+    expect(result.content[0].text).toContain('Failed to get test step id: 4321')
+    expect(mockTp.updateTestStep).not.toHaveBeenCalled()
+  })
+
+  it('returns failure message when update fails', async () => {
+    vi.mocked(mockTp.getTestStep).mockResolvedValue({
+      Id: 4321,
+      Description: 'Current action',
+      Result: 'Current result',
+    } as any)
+    vi.mocked(mockTp.updateTestStep).mockResolvedValue(null as any)
+
+    const result = await handleUpdateTestCaseStepById(mockTp, { id: '4321', result: 'Updated result' })
+
+    expect(result.content[0].text).toContain('Failed to update test step id: 4321')
+  })
+})
+
+describe('handleDeleteTestCaseStepById', () => {
+  it('returns deleted confirmation on success', async () => {
+    vi.mocked(mockTp.deleteTestStep).mockResolvedValue({
+      ok: true,
+      data: { Id: 4321 },
+    } as any)
+
+    const result = await handleDeleteTestCaseStepById(mockTp, '4321')
+    const parsed = JSON.parse(result.content[0].text)
+
+    expect(parsed.deleted).toBe(true)
+    expect(parsed.testStepId).toBe(4321)
+    expect(mockTp.deleteTestStep).toHaveBeenCalledWith('4321')
+  })
+
+  it('surfaces HTTP status and response body on failure', async () => {
+    vi.mocked(mockTp.deleteTestStep).mockResolvedValue({
+      ok: false,
+      status: 404,
+      body: '{"Status":"NotFound","Message":"TestStep 4321 not found"}',
+    } as any)
+
+    const result = await handleDeleteTestCaseStepById(mockTp, '4321')
+
+    expect(result.content[0].text).toContain('Failed to delete test step id: 4321')
+    expect(result.content[0].text).toContain('HTTP status: 404')
+    expect(result.content[0].text).toContain('TestStep 4321 not found')
+  })
+})
+
 describe('TpClient.getTestPlanTestCases', () => {
   const jsonResponse = (body: unknown) => new Response(JSON.stringify(body), {
     status: 200,
@@ -290,5 +481,84 @@ describe('TpClient.getTestPlanTestCases', () => {
     expect(response.Items).toEqual([
       { Id: 304953, Name: 'Root copy', Description: '', TestPlanId: 304077, TestPlanName: 'Root plan' },
     ])
+  })
+})
+
+describe('TpClient test case and test step mutation helpers', () => {
+  it('uses the expected HTTP method and body for updateTestCase', async () => {
+    const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => new Response(JSON.stringify({ Id: 987654 }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const tp = new TpClient()
+    await tp.updateTestCase({ id: '987654', name: 'Updated case', description: '<p>Updated description</p>' })
+
+    const [url, init] = fetchMock.mock.calls[0]
+    expect(decodeURIComponent(url)).toContain('/testCases/?format=json&access_token=')
+    expect(init?.method).toBe('POST')
+    expect(init?.body).toBe(JSON.stringify({ Id: '987654', Name: 'Updated case', Description: '<p>Updated description</p>' }))
+  })
+
+  it('uses the expected HTTP method and path for deleteTestCase', async () => {
+    const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => new Response(JSON.stringify({ Id: 987654 }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const tp = new TpClient()
+    await tp.deleteTestCase('987654')
+
+    const [url, init] = fetchMock.mock.calls[0]
+    expect(decodeURIComponent(url)).toContain('/testCases/987654/?format=json&access_token=')
+    expect(init?.method).toBe('DELETE')
+  })
+
+  it('uses the expected HTTP method and body for updateTestStep', async () => {
+    const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => new Response(JSON.stringify({ Id: 4321 }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const tp = new TpClient()
+    await tp.updateTestStep({ id: '4321', description: 'Updated action', result: 'Updated result' })
+
+    const [url, init] = fetchMock.mock.calls[0]
+    expect(decodeURIComponent(url)).toContain('/testSteps/?format=json&access_token=')
+    expect(init?.method).toBe('POST')
+    expect(init?.body).toBe(JSON.stringify({ Id: '4321', Description: 'Updated action', Result: 'Updated result' }))
+  })
+
+  it('loads a single step from the testSteps endpoint', async () => {
+    const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => new Response(JSON.stringify({ Id: 4321 }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const tp = new TpClient()
+    await tp.getTestStep('4321')
+
+    const [url, init] = fetchMock.mock.calls[0]
+    expect(decodeURIComponent(url)).toContain('/testSteps/4321/?format=json&access_token=')
+    expect(init?.method).toBe('GET')
+  })
+
+  it('uses the expected HTTP method and path for deleteTestStep', async () => {
+    const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => new Response(JSON.stringify({ Id: 4321 }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const tp = new TpClient()
+    await tp.deleteTestStep('4321')
+
+    const [url, init] = fetchMock.mock.calls[0]
+    expect(decodeURIComponent(url)).toContain('/testSteps/4321/?format=json&access_token=')
+    expect(init?.method).toBe('DELETE')
   })
 })

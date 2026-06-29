@@ -33,6 +33,11 @@ import { handleGetTestPlanById } from "./handlers/get_test_plan_by_id.js";
 import { handleGetTestPlanTestCasesById } from "./handlers/get_test_plan_test_cases_by_id.js";
 import { handleGetTestPlanTestCasesWithStepsById } from "./handlers/get_test_plan_test_cases_with_steps_by_id.js";
 import { handleGetTestCaseById } from "./handlers/get_test_case_by_id.js";
+import { handleUpdateTestCaseById } from "./handlers/update_test_case_by_id.js";
+import { handleDeleteTestCaseById } from "./handlers/delete_test_case_by_id.js";
+import { handleAddTestCaseStepById } from "./handlers/add_test_case_step_by_id.js";
+import { handleUpdateTestCaseStepById } from "./handlers/update_test_case_step_by_id.js";
+import { handleDeleteTestCaseStepById } from "./handlers/delete_test_case_step_by_id.js";
 import { handleGetEpicContent } from "./handlers/get_epic_content.js";
 import { handleUpdateEpic } from "./handlers/update_epic.js";
 import { handleGetEpicFeatures } from "./handlers/get_epic_features.js";
@@ -1076,6 +1081,97 @@ server.registerTool(
     },
   },
   async ({ id }) => handleGetTestCaseById(tp, id)
+);
+
+server.registerTool(
+  'update_test_case_by_id',
+  {
+    title: 'Update test case by ID',
+    description: 'Update a Targetprocess Test Case by its ID. Supports name and description only.',
+    inputSchema: {
+      id: z.string()
+        .min(5)
+        .max(6)
+        .describe('Test case ID (e.g. 145789)'),
+      name: z.string()
+        .optional()
+        .describe('Updated test case name'),
+      description: z.string()
+        .optional()
+        .describe('Updated test case description (format as HTML or plain text)'),
+    },
+  },
+  async ({ id, name, description }) => handleUpdateTestCaseById(tp, { id, name, description })
+);
+
+server.registerTool(
+  'delete_test_case_by_id',
+  {
+    title: 'Delete test case by ID',
+    description: 'Delete a Targetprocess Test Case by its ID.',
+    inputSchema: {
+      id: z.string()
+        .min(5)
+        .max(6)
+        .describe('Test case ID (e.g. 145789)'),
+    },
+  },
+  async ({ id }) => handleDeleteTestCaseById(tp, id)
+);
+
+server.registerTool(
+  'add_test_case_step_by_id',
+  {
+    title: 'Add test case step by test case ID',
+    description: 'Add a new step to a Targetprocess Test Case. Despite tool name consistency, this takes testCaseId, not a step ID.',
+    inputSchema: {
+      testCaseId: z.string()
+        .min(5)
+        .max(6)
+        .describe('Test case ID to append the step to (e.g. 145789)'),
+      description: z.string()
+        .describe('Step action text'),
+      result: z.string()
+        .describe('Expected result for this step'),
+    },
+  },
+  async ({ testCaseId, description, result }) => handleAddTestCaseStepById(tp, { testCaseId, description, result })
+);
+
+server.registerTool(
+  'update_test_case_step_by_id',
+  {
+    title: 'Update test case step by ID',
+    description: 'Update a Targetprocess Test Step by its ID. Supports description and result only.',
+    inputSchema: {
+      id: z.string()
+        .min(5)
+        .max(6)
+        .describe('Test step ID (e.g. 145789)'),
+      description: z.string()
+        .optional()
+        .describe('Updated step action text'),
+      result: z.string()
+        .optional()
+        .describe('Updated expected result for this step'),
+    },
+  },
+  async ({ id, description, result }) => handleUpdateTestCaseStepById(tp, { id, description, result })
+);
+
+server.registerTool(
+  'delete_test_case_step_by_id',
+  {
+    title: 'Delete test case step by ID',
+    description: 'Delete a Targetprocess Test Step by its ID.',
+    inputSchema: {
+      id: z.string()
+        .min(5)
+        .max(6)
+        .describe('Test step ID (e.g. 145789)'),
+    },
+  },
+  async ({ id }) => handleDeleteTestCaseStepById(tp, id)
 );
 
 server.registerTool(

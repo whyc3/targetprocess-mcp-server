@@ -436,6 +436,25 @@ export class TpClient {
     }, testCase) as T
   }
 
+  async updateTestCase<T>({ id, name, description }: { id: string, name?: string, description?: string }): Promise<T> {
+    const testCase: Record<string, any> = { "Id": id }
+
+    if (name !== undefined) testCase["Name"] = name
+    if (description !== undefined) testCase["Description"] = description
+
+    return this.post<any, T>({
+      pathParam: ["testCases"],
+      param: { "format": "json" },
+    }, testCase) as T
+  }
+
+  async deleteTestCase<T>(testCaseId: string): Promise<TpResult<T>> {
+    return this.del<T>({
+      pathParam: ["testCases", testCaseId],
+      param: { "format": "json" },
+    })
+  }
+
   async createTestPlan<T>(title: string, resourceId: string, resourceType: 'UserStory' | 'Bug' | 'Feature' = 'UserStory', options?: { description?: string; startDate?: string; endDate?: string }): Promise<T> {
     const testPlan: Record<string, any> = {
       "Name": `Test Plan: ${title}`,
@@ -533,6 +552,32 @@ export class TpClient {
       pathParam: ["testSteps"],
       param: { "format": "json" },
     }, testStepData) as T
+  }
+
+  async getTestStep<T>(testStepId: string): Promise<T> {
+    return this.get<T>({
+      pathParam: ["testSteps", testStepId],
+      param: { "format": "json" },
+    }) as T
+  }
+
+  async updateTestStep<T>({ id, description, result }: { id: string, description?: string, result?: string }): Promise<T> {
+    const testStep: Record<string, any> = { "Id": id }
+
+    if (description !== undefined) testStep["Description"] = description
+    if (result !== undefined) testStep["Result"] = result
+
+    return this.post<any, T>({
+      pathParam: ["testSteps"],
+      param: { "format": "json" },
+    }, testStep) as T
+  }
+
+  async deleteTestStep<T>(testStepId: string): Promise<TpResult<T>> {
+    return this.del<T>({
+      pathParam: ["testSteps", testStepId],
+      param: { "format": "json" },
+    })
   }
 
   async getBugComments<T>(bugId: string, results: number = 25): Promise<T> {
