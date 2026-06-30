@@ -1,7 +1,7 @@
 {
-  "name": "targetprocess-mcp-server",
+  "name": "@whyc/tp-mcp",
   "type": "module",
-  "bin": "./index.js",
+  "bin": "./build/index.js",
   "scripts": {
     "prebuild": "rimraf build dist",
     "build": "tsc",
@@ -14,6 +14,7 @@
   ],
   "publishConfig": {
     "ignore": [
+      "!build/",
       ".claude/",
       "src/",
       "test/"
@@ -21,14 +22,14 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/SerhiiMaksymiv/targetprocess-mcp-server.git"
+    "url": "git@github.com:whyc3/targetprocess-mcp-server.git"
   },
   "engines": {
     "node": ">=20.x"
   },
   "version": "2.5.1",
   "description": "MCP server for Tartget Process",
-  "main": "index.js",
+  "main": "build/index.js",
   "keywords": [
     "mcp",
     "tp",
@@ -50,10 +51,7 @@
     "typescript": "^5.9.3",
     "zod": "^3.25.76"
   },
-  "bugs": {
-    "url": "https://github.com/SerhiiMaksymiv/targetprocess-mcp-server/issues"
-  },
-  "homepage": "https://github.com/SerhiiMaksymiv/targetprocess-mcp-server#readme",
+  "homepage": "https://github.com/whyc3/targetprocess-mcp-server.git#readme",
   "devDependencies": {
     "vitest": "^4.1.8"
   }
