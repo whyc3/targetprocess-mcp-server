@@ -1,7 +1,7 @@
 {
   "name": "targetprocess-mcp-server",
   "type": "module",
-  "bin": "./build/index.js",
+  "bin": "./index.js",
   "scripts": {
     "prebuild": "rimraf build dist",
     "build": "tsc",
@@ -14,7 +14,6 @@
   ],
   "publishConfig": {
     "ignore": [
-      "!build/",
       ".claude/",
       "src/",
       "test/"
@@ -29,7 +28,7 @@
   },
   "version": "2.5.1",
   "description": "MCP server for Tartget Process",
-  "main": "build/index.js",
+  "main": "index.js",
   "keywords": [
     "mcp",
     "tp",
