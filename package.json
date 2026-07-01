@@ -38,7 +38,7 @@
     "targetprocess",
     "targetprocess-server"
   ],
-  "author": "Serhii Maksymiv",
+  "author": "Younes Chekkour",
   "license": "ISC",
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.26.0",
