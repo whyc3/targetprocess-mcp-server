@@ -63,7 +63,7 @@ Cards — Read
 - `get_user_story_test_cases` — Fetch the linked test plan and all its test cases, including nested child test plans/containers, with steps for a user story (resourceId)
 - `get_card_relations` — Get all relations (Dependency, Blocker, Relation, Link, Duplicate) for a card, with direction and the related card (id)
 - `get_relation_types` — List the relation types available in this instance (id + name); use to find the `relationType` name for `create_card_relation` (no params)
-- `search_tp_cards` — Search TP cards by keyword or phrase in description (keyword, optional entityType: UserStories | Bugs, default: UserStories)
+- `search_tp_cards` — Search TP cards by keyword in name and/or description with pagination, sorting, and optional filters (entityType: UserStories | Bugs | Features | Generals, state, projectId, ownerId, releaseId, tags with AND semantics, date bounds)
 
 Cards — Write
 - `add_comment` — Post a comment to any card (id, comment)

@@ -45,6 +45,37 @@ export interface TpResponse<T> {
   Items: T[]
 }
 
+export type SearchEntityType = "Generals" | "UserStories" | "Bugs" | "Features"
+
+export type SearchField = "Name" | "Description"
+
+export type SearchOrderField = "Name" | "CreateDate" | "ModifyDate" | "LastCommentDate"
+
+export type SearchOrderDirection = "asc" | "desc"
+
+export interface SearchFilters {
+  entityStateName?: string
+  projectId?: string
+  ownerId?: string
+  releaseId?: string
+  tags?: string[]
+  createdAfter?: string
+  createdBefore?: string
+  modifiedAfter?: string
+  modifiedBefore?: string
+}
+
+export interface SearchEntitiesParams {
+  entityType: SearchEntityType
+  field: SearchField
+  keyword: string
+  take?: number
+  skip?: number
+  orderBy?: SearchOrderField
+  orderDirection?: SearchOrderDirection
+  filters?: SearchFilters
+}
+
 export type TpResult<U> =
   | { ok: true; data: U }
   | { ok: false; status: number; body: string }

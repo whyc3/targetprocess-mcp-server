@@ -7,7 +7,6 @@ import { JSDOM } from "jsdom";
 import { TpClient } from "./tp.js";
 import * as TP from "./types.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { config } from "./config.js";
 import { handleGetProjects } from "./handlers/get_projects.js";
 import { handleGetUserById } from "./handlers/get_user_by_id.js";
 import { handleGetCurrentReleases } from "./handlers/get_current_releases.js";
@@ -55,6 +54,7 @@ import { handleUpdateUserStorySubState } from "./handlers/update_user_story_sub_
 import { handleGetCardRelations } from "./handlers/get_card_relations.js";
 import { handleCreateCardRelation } from "./handlers/create_card_relation.js";
 import { handleDeleteCardRelation } from "./handlers/delete_card_relation.js";
+import { handleSearchTpCards } from "./handlers/search_tp_cards.js";
 
 const server = new McpServer(
   {
@@ -210,63 +210,79 @@ server.registerTool(
   async ({ name, results, withDescription }) => handleGetReleaseOpenUserStories(tp, name, results, withDescription)
 );
 
-server.registerTool('search_tp_cards', {
-  title: 'Search TP cards by keyword or phrase in description',
-  description: `Searches TP cards (UserStories or Bugs) by keyword or phrase or partial keyphrase in Card Description e.g. "Text Element", "Font field"
-    NOTE: after results are returned, try analyze and filter results by most relevant to what user is looking for in the description text
-    FALLBACK: if no results are found, try spliting phrase by spaces and searching for each word and with "Generals" entity type`,
-  inputSchema: {
-    keyword: z.string()
-      .describe('Keyword or partial name or keyphrase to search for in description'),
-    entityType: z.enum(["UserStories", "Bugs", "Generals"])
-      .default("UserStories")
-      .optional()
-      .describe('Type of TP entity to search — UserStories or Bugs (default: UserStories)'),
+server.registerTool(
+  'search_tp_cards',
+  {
+    title: 'Search TP cards by keyword with filters',
+    description: 'Search Targetprocess cards by name and/or description with pagination, sorting, and filters for state, owner, project, release, and tags.',
+    inputSchema: {
+      keyword: z.string()
+        .describe('Keyword or phrase to search for'),
+      entityType: z.enum(["UserStories", "Bugs", "Features", "Generals"])
+        .default("UserStories")
+        .optional()
+        .describe('Entity collection to search (default: UserStories)'),
+      searchInName: z.boolean()
+        .default(true)
+        .optional()
+        .describe('Search in card name'),
+      searchInDescription: z.boolean()
+        .default(true)
+        .optional()
+        .describe('Search in card description'),
+      take: z.number()
+        .int()
+        .min(1)
+        .max(100)
+        .default(25)
+        .optional()
+        .describe('Number of results to return per page'),
+      skip: z.number()
+        .int()
+        .min(0)
+        .default(0)
+        .optional()
+        .describe('Number of results to skip'),
+      state: z.string()
+        .optional()
+        .describe('Optional entity state name filter'),
+      projectId: z.string()
+        .optional()
+        .describe('Optional project ID filter'),
+      ownerId: z.string()
+        .optional()
+        .describe('Optional owner ID filter'),
+      releaseId: z.string()
+        .optional()
+        .describe('Optional release ID filter'),
+      tags: z.array(z.string())
+        .optional()
+        .describe('Optional tag filters; all provided tags must match'),
+      createdAfter: z.string()
+        .optional()
+        .describe('Optional ISO-like lower bound for CreateDate'),
+      createdBefore: z.string()
+        .optional()
+        .describe('Optional ISO-like upper bound for CreateDate'),
+      modifiedAfter: z.string()
+        .optional()
+        .describe('Optional ISO-like lower bound for ModifyDate'),
+      modifiedBefore: z.string()
+        .optional()
+        .describe('Optional ISO-like upper bound for ModifyDate'),
+      orderBy: z.enum(["Name", "CreateDate", "ModifyDate", "LastCommentDate"])
+        .optional()
+        .describe('Optional sort field'),
+      orderDirection: z.enum(["asc", "desc"])
+        .default("asc")
+        .optional()
+        .describe('Optional sort direction'),
+    },
   },
-},
-  async ({ keyword, entityType = "UserStories" }) => {
-    const results = await Promise.all<TP.TpResponse<TP.General>>([
-      tp.searchContainsNameText<TP.TpResponse<TP.UserStory>>({ text: keyword, entityType }),
-      tp.searchContainsDescriptionText<TP.TpResponse<TP.General>>({ text: keyword, entityType })
-    ])
-    if (!results) {
-      return {
-        content: [{
-          type: 'text',
-          text: `Failed to search for keyword: "${keyword}"\n JSON: ${JSON.stringify(results, null, 2)}`
-        }],
-      }
-    }
-
-    const items = results.map((item: TP.TpResponse<TP.General>) => item.Items).flat()
-
-    if (items.length == 0) {
-      return {
-        content: [{
-          type: 'text',
-          text: `Failed to find card by keyword: "${keyword}"\n JSON: ${JSON.stringify(results, null, 2)}`
-        }],
-      }
-    }
-
-    const parsedItems = items.map((item) => {
-      const dom = new JSDOM(`<html><body><div id="content">${item.Description}</div></body></html>`)
-      const descriptionText = dom.window.document.getElementById('content')?.textContent
-      return {
-        title: item.Name,
-        id: item.Id,
-        description: descriptionText,
-        url: `${config.tp.url}/entity/${item.Id}`,
-      }
-    })
-
-    return {
-      content: [{
-        type: 'text',
-        text: JSON.stringify(parsedItems)
-      }],
-    };
-  }
+  async (params) => handleSearchTpCards(tp, {
+    ...params,
+    entityType: params.entityType ?? "UserStories",
+  })
 )
 
 server.registerTool(

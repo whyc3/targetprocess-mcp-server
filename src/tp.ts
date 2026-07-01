@@ -1,6 +1,18 @@
 import { readFileSync } from "fs";
 import { basename } from "path";
-import { TpClientParameters, TpResponse, TpResult, Relation, BugInputSchema, Bug, Task, LoggedUser, TestCase, TestPlan } from "./types.js";
+import {
+  TpClientParameters,
+  TpResponse,
+  TpResult,
+  Relation,
+  BugInputSchema,
+  Bug,
+  Task,
+  LoggedUser,
+  TestCase,
+  TestPlan,
+  SearchEntitiesParams,
+} from "./types.js";
 import { config } from "./config.js";
 
 type TestPlanNode = {
@@ -153,6 +165,60 @@ export class TpClient {
       console.error("Error making TP request:", error);
       return { ok: false, status: 0, body: String(error) }
     }
+  }
+
+  private escapeWhereValue(value: string): string {
+    return value.replace(/\\/g, "\\\\").replace(/'/g, "\\'")
+  }
+
+  private buildEqFilter(field: string, value: string): string {
+    if (/^\d+$/.test(value)) {
+      return `${field} eq ${value}`
+    }
+
+    return `${field} eq '${this.escapeWhereValue(value)}'`
+  }
+
+  private buildSearchWhereClause({ field, keyword, filters }: Pick<SearchEntitiesParams, "field" | "keyword" | "filters">): string {
+    const clauses: string[] = [`${field} contains '${this.escapeWhereValue(keyword)}'`]
+
+    if (filters?.entityStateName) {
+      clauses.push(`EntityState.Name eq '${this.escapeWhereValue(filters.entityStateName)}'`)
+    }
+
+    if (filters?.projectId) {
+      clauses.push(this.buildEqFilter("Project.Id", filters.projectId))
+    }
+
+    if (filters?.ownerId) {
+      clauses.push(this.buildEqFilter("Owner.Id", filters.ownerId))
+    }
+
+    if (filters?.releaseId) {
+      clauses.push(this.buildEqFilter("Release.Id", filters.releaseId))
+    }
+
+    if (filters?.createdAfter) {
+      clauses.push(`CreateDate gte '${this.escapeWhereValue(filters.createdAfter)}'`)
+    }
+
+    if (filters?.createdBefore) {
+      clauses.push(`CreateDate lte '${this.escapeWhereValue(filters.createdBefore)}'`)
+    }
+
+    if (filters?.modifiedAfter) {
+      clauses.push(`ModifyDate gte '${this.escapeWhereValue(filters.modifiedAfter)}'`)
+    }
+
+    if (filters?.modifiedBefore) {
+      clauses.push(`ModifyDate lte '${this.escapeWhereValue(filters.modifiedBefore)}'`)
+    }
+
+    for (const tag of filters?.tags ?? []) {
+      clauses.push(`Tags contains '${this.escapeWhereValue(tag)}'`)
+    }
+
+    return clauses.join(" and ")
   }
 
   async getUserStory<T>(userStoryId: string): Promise<T> {
@@ -604,27 +670,52 @@ export class TpClient {
     return response
   }
 
-  async searchContainsNameText<T>({ text, entityType }: { text: string, entityType: "Generals" | "UserStories" | "Bugs" | "Features" }): Promise<T> {
+  async searchEntities<T>({
+    entityType,
+    field,
+    keyword,
+    take = 25,
+    skip = 0,
+    orderBy,
+    orderDirection = "asc",
+    filters,
+  }: SearchEntitiesParams): Promise<T> {
+    const param: Record<string, string | number> = {
+      "format": "json",
+      "take": take,
+      "skip": skip,
+      "where": this.buildSearchWhereClause({ field, keyword, filters }),
+    }
+
+    if (orderBy) {
+      const sortKey = orderDirection === "desc" ? "orderByDesc" : "orderBy"
+      param[sortKey] = orderBy
+    }
+
     return this.get<T>({
       pathParam: [entityType],
-      param: {
-        "format": "json",
-        "take": "25",
-        "where": `Name contains '${text}'`,
-        "include": "[Name, Description, Id]"
-      },
+      param,
     }) as T
   }
 
+  async searchContainsNameText<T>({ text, entityType }: { text: string, entityType: "Generals" | "UserStories" | "Bugs" | "Features" }): Promise<T> {
+    return this.searchEntities<T>({
+      entityType,
+      field: "Name",
+      keyword: text,
+      take: 25,
+      skip: 0,
+    })
+  }
+
   async searchContainsDescriptionText<T>({ text, entityType }: { text: string, entityType: "Generals" | "UserStories" | "Bugs" | "Features" }): Promise<T> {
-    return this.get<T>({
-      pathParam: [entityType],
-      param: {
-        "where": `Description contains '${text}' and EntityState.Name eq 'Done'`,
-        "format": "json",
-        "take": "50",
-      },
-    }) as T
+    return this.searchEntities<T>({
+      entityType,
+      field: "Description",
+      keyword: text,
+      take: 50,
+      skip: 0,
+    })
   }
 
   async getCurrentReleases<T>(): Promise<T> {
