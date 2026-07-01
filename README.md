@@ -183,7 +183,7 @@ Developer Tools
       "command": "npx",
       "args": [
         "-y",
-        "targetprocess-mcp-server"
+        "@whyc/tp-mcp"
       ],
       "env": {
         "TP_TOKEN": "<your-tp-token>" // Settings -> Authentication and Security -> New Access Token,
@@ -201,7 +201,7 @@ Developer Tools
 ### Claude Code
 ```bash
 claude mcp add targetprocess -s user \
-  -e TP_TOKEN=<your-tp-token> -e TP_BASE_URL=<tp-api-endpoint> -- npx -y targetprocess-mcp-server
+  -e TP_TOKEN=<your-tp-token> -e TP_BASE_URL=<tp-api-endpoint> -- npx -y @whyc/tp-mcp
 ```
 
 ## Local Development
