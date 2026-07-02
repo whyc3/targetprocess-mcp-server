@@ -986,7 +986,7 @@ server.registerTool(
   'create_test_plan',
   {
     title: 'Create a new test plan linked to a TP card',
-    description: `Create a new test plan linked to a UserStory, Bug, or Feature. Name and Project are required by the API; Description, StartDate, and EndDate are optional.`,
+    description: `Create a new test plan linked to a UserStory, Bug, or Feature. Optionally attach it as a sub plan of an existing test plan.`,
     inputSchema: {
       title: z.string()
         .describe('Test plan title — use the linked card name'),
@@ -1000,11 +1000,19 @@ server.registerTool(
         .describe('Type of the linked card — UserStory, Bug, or Feature (default: UserStory)'),
       description: z.string()
         .optional()
-        .describe('Optional description of the test plan scope or goals')
+        .describe('Optional description of the test plan scope or goals'),
+      parentTestPlanId: z.string()
+        .min(5)
+        .max(6)
+        .optional()
+        .describe('Optional parent test plan ID to create this test plan as a sub plan')
     },
   },
-  async ({ title, resourceId, resourceType, description }) => {
-    const testPlanResponse = await tp.createTestPlan<TP.TestPlan>(title, resourceId, resourceType, { description });
+  async ({ title, resourceId, resourceType, description, parentTestPlanId }) => {
+    const testPlanResponse = await tp.createTestPlan<TP.TestPlan>(title, resourceId, resourceType, {
+      description,
+      parentTestPlanId,
+    });
 
     if (!testPlanResponse) {
       return {

@@ -521,7 +521,7 @@ export class TpClient {
     })
   }
 
-  async createTestPlan<T>(title: string, resourceId: string, resourceType: 'UserStory' | 'Bug' | 'Feature' = 'UserStory', options?: { description?: string; startDate?: string; endDate?: string }): Promise<T> {
+  async createTestPlan<T>(title: string, resourceId: string, resourceType: 'UserStory' | 'Bug' | 'Feature' = 'UserStory', options?: { description?: string; startDate?: string; endDate?: string; parentTestPlanId?: string }): Promise<T> {
     const testPlan: Record<string, any> = {
       "Name": `Test Plan: ${title}`,
       "Project": {
@@ -550,6 +550,7 @@ export class TpClient {
     if (options?.description) testPlan["Description"] = options.description
     if (options?.startDate) testPlan["StartDate"] = options.startDate
     if (options?.endDate) testPlan["EndDate"] = options.endDate
+    if (options?.parentTestPlanId) testPlan["ParentTestPlans"] = [{ "Id": options.parentTestPlanId }]
 
     return this.post<any, T>({
       pathParam: ["testPlans"],
