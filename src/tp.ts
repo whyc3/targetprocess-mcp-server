@@ -53,6 +53,7 @@ export class TpClient {
   private async get<T>(params: TpClientParameters): Promise<T | null> {
     params.param["access_token"] = this.token
     let _url = this.params(params)
+    console.error(JSON.stringify({ "TP_GET_URL": _url }))
     try {
       const response = await fetch(_url, {
         method: "GET",
@@ -617,8 +618,8 @@ export class TpClient {
     }) as T
   }
 
-  async getReleaseBugs<T>({ name, results = 100, withDescription = false }: { name: string, results?: number, withDescription?: boolean }): Promise<T> {
-    const includeFilter = withDescription ? "[Name, Description, Id]" : "[Name, Id]"
+  async getReleaseBugs<T>({ name, results = 500, withDescription = false }: { name: string, results?: number, withDescription?: boolean }): Promise<T> {
+    const includeFilter = withDescription ? "[Name, Description, Id, Creator, Owner, Team]" : "[Name, Id]"
     return this.get<T>({
       pathParam: ["Bugs"],
       param: {

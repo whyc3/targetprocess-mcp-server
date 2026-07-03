@@ -124,9 +124,11 @@ server.registerTool(
         .default(100)
         .optional()
         .describe('Number of results to return, default is 100'),
+      withDescription: z.boolean()
+        .describe('Include description in the response'),
     },
   },
-  async ({ name, results }) => handleGetReleaseBugs(tp, name, results)
+  async ({ name, results, withDescription }) => handleGetReleaseBugs(tp, name, results, withDescription)
 );
 
 server.registerTool(
