@@ -31,6 +31,12 @@ export class TpClient {
     return _url + "/?" + _urlParams.join("&")
   }
 
+  // Strips the access_token value out of a URL before it's logged, so the
+  // live TP credential never ends up in stderr/log files.
+  private redact(url: string): string {
+    return url.replace(this.token, "***")
+  }
+
   // @ts-ignore
   private async getAll<T>(params: TpClientParameters): Promise<T[]> {
     const allItems: T[] = []
@@ -65,7 +71,7 @@ export class TpClient {
       return (await response.json()) as T
     } catch (error) {
       console.error("Error making TP request:", error);
-      console.error("Request URL:", _url);
+      console.error("Request URL:", this.redact(_url));
       return null;
     }
   }
@@ -73,7 +79,7 @@ export class TpClient {
   private async post<T, U>(params: TpClientParameters, data: T): Promise<U | null> {
     params.param["access_token"] = this.token
     let _url = this.params(params)
-    console.error(JSON.stringify({ "TP_POST_URL": _url }))
+    console.error(JSON.stringify({ "TP_POST_URL": this.redact(_url) }))
     console.error(JSON.stringify({ "TP_POST_BODY": data }))
     try {
       const response = await fetch(_url, {
@@ -96,7 +102,7 @@ export class TpClient {
   private async postRaw<T, U>(params: TpClientParameters, data: T): Promise<TpResult<U>> {
     params.param["access_token"] = this.token
     let _url = this.params(params)
-    console.error(JSON.stringify({ "TP_POST_URL": _url }))
+    console.error(JSON.stringify({ "TP_POST_URL": this.redact(_url) }))
     console.error(JSON.stringify({ "TP_POST_BODY": data }))
     try {
       const response = await fetch(_url, {
@@ -121,7 +127,7 @@ export class TpClient {
   private async del<U>(params: TpClientParameters): Promise<TpResult<U>> {
     params.param["access_token"] = this.token
     let _url = this.params(params)
-    console.error(JSON.stringify({ "TP_DELETE_URL": _url }))
+    console.error(JSON.stringify({ "TP_DELETE_URL": this.redact(_url) }))
     try {
       const response = await fetch(_url, {
         method: "DELETE",
@@ -1065,7 +1071,7 @@ export class TpClient {
     formData.append("file", blob, fileName)
 
     const url = `${this.baseUrl}/UploadFile.ashx?access_token=${this.token}`
-    console.error(JSON.stringify({ "UPLOAD_URL": url.replace(this.token, "***") }, null, 2))
+    console.error(JSON.stringify({ "UPLOAD_URL": this.redact(url) }, null, 2))
 
     try {
       const response = await fetch(url, {
