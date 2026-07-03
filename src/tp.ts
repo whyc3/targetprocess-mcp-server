@@ -564,7 +564,7 @@ export class TpClient {
       param: {
         "where": `Description contains '${text}' and EntityState.Name eq 'Done'`,
         "format": "json",
-        "take": "50",
+        "take": "100",
       },
     }) as T
   }
@@ -579,7 +579,7 @@ export class TpClient {
     }) as T
   }
 
-  async getReleaseUserStories<T>({ name, results = 50, withDescription = false }: { name: string, results?: number, withDescription?: boolean }): Promise<T> {
+  async getReleaseUserStories<T>({ name, results = 100, withDescription = false }: { name: string, results?: number, withDescription?: boolean }): Promise<T> {
     const includeFilter = withDescription ? "[Name, Description, Id]" : "[Name, Id]"
     return this.get<T>({
       pathParam: ["UserStories"],
@@ -592,7 +592,7 @@ export class TpClient {
     }) as T
   }
 
-  async getReleaseOpenUserStories<T>({ name, results = 100, withDescription = false }: { name: string, results?: number, withDescription?: boolean }): Promise<T> {
+  async getReleaseOpenUserStories<T>({ name, results = 300, withDescription = false }: { name: string, results?: number, withDescription?: boolean }): Promise<T> {
     const includeFilter = withDescription ? "[Name, Description, Id]" : "[Name, Id]"
     return this.get<T>({
       pathParam: ["UserStories"],
@@ -605,7 +605,7 @@ export class TpClient {
     }) as T
   }
 
-  async getReleaseOpenBugs<T>({ name, results = 200, withDescription = false }: { name: string, results?: number, withDescription?: boolean }): Promise<T> {
+  async getReleaseOpenBugs<T>({ name, results = 300, withDescription = false }: { name: string, results?: number, withDescription?: boolean }): Promise<T> {
     const includeFilter = withDescription ? "[Name, Description, Id]" : "[Name, Id]"
     return this.get<T>({
       pathParam: ["Bugs"],
@@ -631,7 +631,7 @@ export class TpClient {
     }) as T
   }
 
-  async getReleaseFeatures<T>({ name, results = 50, withDescription = false }: { name: string, results?: number, withDescription?: boolean }): Promise<T> {
+  async getReleaseFeatures<T>({ name, results = 100, withDescription = false }: { name: string, results?: number, withDescription?: boolean }): Promise<T> {
     const includeFilter = withDescription ? "[Name, Description, Id]" : "[Name, Id]"
     return this.get<T>({
       pathParam: ["Features"],

@@ -121,7 +121,7 @@ server.registerTool(
       name: z.string()
         .describe('Release name'),
       results: z.number()
-        .default(100)
+        .default(300)
         .optional()
         .describe('Number of results to return, default is 100'),
       withDescription: z.boolean()
