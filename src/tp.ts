@@ -1,7 +1,25 @@
 import { readFileSync } from "fs";
 import { basename } from "path";
-import { TpClientParameters, TpResponse, TpResult, Relation, BugInputSchema, Bug, Task, LoggedUser, RoleAssignment } from "./types.js";
 import { config } from "./config.js";
+import {
+  TpClientParameters,
+  TpResponse,
+  TpResult,
+  Relation,
+  BugInputSchema,
+  Bug,
+  Task,
+  LoggedUser,
+  RoleAssignment,
+  TestPlan,
+  TestCase
+} from "./types.js";
+
+type TestPlanNode = {
+  id: string
+  numericId: number
+  name?: string
+}
 
 export class TpClient {
 
@@ -140,6 +158,35 @@ export class TpClient {
     }
   }
 
+  private async getAllOrNull<T>(params: TpClientParameters): Promise<T[] | null> {
+    const allItems: T[] = []
+    let skip = 0
+    const take = 100
+
+    while (true) {
+      const page = await this.get<TpResponse<T>>({
+        ...params,
+        param: {
+          ...params.param,
+          take,
+          skip,
+        },
+      })
+      if (!page) return null
+      if (!page?.Items?.length) break
+      allItems.push(...page.Items)
+      if (!page.Next) break
+      skip += take
+    }
+
+    return allItems
+  }
+
+  /**
+   * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+   * TP
+   * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+   */
   async getUserStory<T>(userStoryId: string): Promise<T> {
     const response = await this.get<T>({
       pathParam: ["userStories", userStoryId],
@@ -702,6 +749,89 @@ export class TpClient {
     }) as T
   }
 
+
+  private toTestPlanNode(testPlan: Partial<TestPlan> | null, fallbackId?: string): TestPlanNode | null {
+    const id = testPlan?.Id ?? fallbackId
+    if (id === undefined || id === null) return null
+
+    const numericId = Number(id)
+
+    return {
+      id: String(id),
+      numericId: Number.isNaN(numericId) ? 0 : numericId,
+      name: testPlan?.Name,
+    }
+  }
+
+  private async getDirectTestPlanTestCaseItems(testPlan: TestPlanNode): Promise<TestCase[] | null> {
+    const items = await this.getAllOrNull<TestCase>({
+      pathParam: ["testPlans", testPlan.id, "testcases"],
+      param: { "format": "json" },
+    })
+
+    if (!items) return null
+
+    return items.map((item) => ({
+      ...item,
+      TestPlanId: testPlan.numericId,
+      TestPlanName: testPlan.name || item.LinkedTestPlan?.Name,
+    }))
+  }
+
+  private async getChildTestPlanNodes(testPlanId: string): Promise<TestPlanNode[] | null> {
+    const items = await this.getAllOrNull<Partial<TestPlan>>({
+      pathParam: ["testPlans"],
+      param: {
+        "format": "json",
+        "where": `ParentTestPlans.Id eq ${testPlanId}`,
+        "include": "[Id,Name,ParentTestPlans[Id,Name]]",
+      },
+    })
+
+    if (!items) return null
+
+    return items
+      .map((item) => this.toTestPlanNode(item))
+      .filter((item): item is TestPlanNode => Boolean(item))
+  }
+
+  async getIndirectTestPlanTestCases<T>(testPlanId: string): Promise<T> {
+    const rootTestPlan = await this.getTestPlan<TestPlan>(testPlanId)
+    const rootTestPlanNode = this.toTestPlanNode(rootTestPlan, testPlanId)
+    if (!rootTestPlanNode) return null as T
+
+    const queue: TestPlanNode[] = [rootTestPlanNode]
+    const visitedPlanIds = new Set<string>()
+    const seenTestCaseIds = new Set<string>()
+    const testCases: TestCase[] = []
+
+    while (queue.length > 0) {
+      const testPlan = queue.shift()!
+      if (visitedPlanIds.has(testPlan.id)) continue
+      visitedPlanIds.add(testPlan.id)
+
+      const directTestCases = await this.getDirectTestPlanTestCaseItems(testPlan)
+      if (!directTestCases) return null as T
+
+      for (const testCase of directTestCases) {
+        const testCaseId = String(testCase.Id)
+        if (seenTestCaseIds.has(testCaseId)) continue
+        seenTestCaseIds.add(testCaseId)
+        testCases.push(testCase)
+      }
+
+      const childTestPlans = await this.getChildTestPlanNodes(testPlan.id)
+      if (!childTestPlans) return null as T
+
+      for (const childTestPlan of childTestPlans) {
+        if (!visitedPlanIds.has(childTestPlan.id)) queue.push(childTestPlan)
+      }
+    }
+
+    return { Next: "", Items: testCases } as T
+  }
+
+
   async getTestPlanTestCases<T>(testPlanId: string): Promise<T> {
     return this.get<T>({
       pathParam: ["testPlans", testPlanId, "testcases"],
@@ -714,6 +844,51 @@ export class TpClient {
       pathParam: ["testCases", testCaseId, "teststeps"],
       param: { "format": "json" },
     }) as T
+  }
+
+  async getTestCase<T>(testCaseId: string): Promise<T> {
+    return this.get<T>({
+      pathParam: ["testCases", testCaseId],
+      param: { "format": "json" },
+    }) as T
+  }
+
+  async updateTestCase<T>({ id, name, description }: { id: string, name?: string, description?: string }): Promise<T> {
+    const testCase: Record<string, any> = { "Id": id }
+
+    if (name !== undefined) testCase["Name"] = name
+    if (description !== undefined) testCase["Description"] = description
+
+    return this.post<any, T>({
+      pathParam: ["testCases"],
+      param: { "format": "json" },
+    }, testCase) as T
+  }
+
+  async getTestStep<T>(testStepId: string): Promise<T> {
+    return this.get<T>({
+      pathParam: ["testSteps", testStepId],
+      param: { "format": "json" },
+    }) as T
+  }
+
+  async updateTestStep<T>({ id, description, result }: { id: string, description?: string, result?: string }): Promise<T> {
+    const testStep: Record<string, any> = { "Id": id }
+
+    if (description !== undefined) testStep["Description"] = description
+    if (result !== undefined) testStep["Result"] = result
+
+    return this.post<any, T>({
+      pathParam: ["testSteps"],
+      param: { "format": "json" },
+    }, testStep) as T
+  }
+
+  async deleteTestStep<T>(testStepId: string): Promise<TpResult<T>> {
+    return this.del<T>({
+      pathParam: ["testSteps", testStepId],
+      param: { "format": "json" },
+    })
   }
 
   async getProjects<T>(): Promise<T> {
@@ -1048,6 +1223,14 @@ export class TpClient {
       param: { "format": "json" },
     })
   }
+
+  async getTestPlan<T>(testPlanId: string): Promise<T> {
+    return this.get<T>({
+      pathParam: ["testPlans", testPlanId],
+      param: { "format": "json" },
+    }) as T
+  }
+
 
   async addAttachedFile(generalId: string, source: { filePath: string } | { fileContent: string; fileName: string }): Promise<string | null> {
     let blob: Blob
