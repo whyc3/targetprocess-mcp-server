@@ -93,7 +93,7 @@ server.registerTool(
     inputSchema: {
       id: z.string()
         .min(5)
-        .max(6)
+        .max(9)
         .describe('TP (or tp) ID (e.g. 145789)')
     },
   },
@@ -285,7 +285,7 @@ server.registerTool(
     inputSchema: {
       id: z.string()
         .min(5)
-        .max(6)
+        .max(9)
         .describe('Bug card ID (e.g. 145789)')
     },
   },
@@ -326,7 +326,7 @@ server.registerTool(
     inputSchema: {
       id: z.string()
         .min(5)
-        .max(6)
+        .max(9)
         .describe('TP card id, usually user story or bug ID (e.g. 145789)'),
       comment: z.string()
         .describe('Comment content to add'),
@@ -380,7 +380,7 @@ server.registerTool(
     inputSchema: {
       id: z.string()
         .min(5)
-        .max(6)
+        .max(9)
         .describe('TP card id, usually user story or bug ID (e.g. 145789)'),
       comment: z.string()
         .describe('Comment content to add'),
@@ -397,7 +397,7 @@ server.registerTool(
     inputSchema: {
       id: z.string()
         .min(5)
-        .max(6)
+        .max(9)
         .describe('TP user story ID (e.g. 145789)'),
       results: z.number()
         .default(25)
@@ -416,7 +416,7 @@ server.registerTool(
     inputSchema: {
       id: z.string()
         .min(5)
-        .max(6)
+        .max(9)
         .describe('TP bug ID (e.g. 145789)'),
       results: z.number()
         .default(25)
@@ -446,7 +446,7 @@ server.registerTool(
       card: z.object({
         id: z.string()
           .min(5)
-          .max(6)
+          .max(9)
           .describe(`Usually user story id, bug ID, or feature ID (e.g. 145789)`),
         type: z.enum(["UserStory", "Bug", "Feature"])
       }),
@@ -512,7 +512,7 @@ server.registerTool(
     inputSchema: {
       id: z.string()
         .min(5)
-        .max(6)
+        .max(9)
         .describe('Bug card ID (e.g. 145789)'),
       title: z.string()
         .optional()
@@ -559,7 +559,7 @@ server.registerTool(
     inputSchema: {
       id: z.string()
         .min(5)
-        .max(6)
+        .max(9)
         .describe('User story card ID (e.g. 145789)'),
       entityStateId: z.string()
         .optional()
@@ -586,7 +586,7 @@ server.registerTool(
     inputSchema: {
       id: z.string()
         .min(5)
-        .max(6)
+        .max(9)
         .describe('User story card ID (e.g. 145789)'),
       title: z.string()
         .optional()
@@ -686,12 +686,12 @@ server.registerTool(
         .describe('Optional user story description (when provided, format as HTML)'),
       featureId: z.string()
         .min(5)
-        .max(6)
+        .max(9)
         .optional()
         .describe('Optional Feature ID to link this user story to (e.g. 145636)'),
       releaseId: z.string()
         .min(5)
-        .max(6)
+        .max(9)
         .optional()
         .describe('Optional Release ID to link this user story to (e.g. 145200)'),
       projectId: z.string()
@@ -770,12 +770,12 @@ server.registerTool(
         .describe('Anything that helps understand the story context but does not fit other sections'),
       featureId: z.string()
         .min(5)
-        .max(6)
+        .max(9)
         .optional()
         .describe('Optional Feature ID to link this user story to (e.g. 145636)'),
       releaseId: z.string()
         .min(5)
-        .max(6)
+        .max(9)
         .optional()
         .describe('Optional Release ID to link this user story to (e.g. 145200)'),
       projectId: z.string()
@@ -872,12 +872,12 @@ server.registerTool(
         .describe('Optional feature description (when provided, format as HTML)'),
       epicId: z.string()
         .min(5)
-        .max(6)
+        .max(9)
         .optional()
         .describe('Optional Epic ID to link this feature to (e.g. 145636)'),
       releaseId: z.string()
         .min(5)
-        .max(6)
+        .max(9)
         .optional()
         .describe('Optional Release ID to link this feature to (e.g. 145200)'),
       projectId: z.string()
@@ -905,7 +905,7 @@ server.registerTool(
         .describe('Optional epic description (when provided, format as HTML)'),
       releaseId: z.string()
         .min(5)
-        .max(6)
+        .max(9)
         .optional()
         .describe('Optional Release ID to link this epic to (e.g. 145200)'),
       projectId: z.string()
@@ -925,7 +925,7 @@ server.registerTool(
     inputSchema: {
       id: z.string()
         .min(5)
-        .max(6)
+        .max(9)
         .describe('Epic ID (e.g. 148813)'),
     },
   },
@@ -940,7 +940,7 @@ server.registerTool(
     inputSchema: {
       id: z.string()
         .min(5)
-        .max(6)
+        .max(9)
         .describe('Epic ID (e.g. 148813)'),
       title: z.string()
         .optional()
@@ -950,7 +950,7 @@ server.registerTool(
         .describe('Updated epic description (format as HTML)'),
       releaseId: z.string()
         .min(5)
-        .max(6)
+        .max(9)
         .optional()
         .describe('Optional Release ID to link this epic to'),
       projectId: z.string()
@@ -970,7 +970,7 @@ server.registerTool(
     inputSchema: {
       id: z.string()
         .min(5)
-        .max(6)
+        .max(9)
         .describe('Epic ID (e.g. 148813)'),
     },
   },
@@ -987,7 +987,7 @@ server.registerTool(
         .describe('Test plan title — use the linked card name'),
       resourceId: z.string()
         .min(5)
-        .max(6)
+        .max(9)
         .describe('ID of the card to link this test plan to (e.g. 145789)'),
       resourceType: z.enum(['UserStory', 'Bug', 'Feature'])
         .default('UserStory')
@@ -1027,7 +1027,7 @@ server.registerTool(
     inputSchema: {
       id: z.string()
         .min(5)
-        .max(6)
+        .max(9)
         .describe('TP feature ID (e.g. 145636)'),
     },
   },
@@ -1135,7 +1135,7 @@ server.registerTool(
     inputSchema: {
       id: z.string()
         .min(5)
-        .max(6)
+        .max(9)
         .describe('TP feature ID (e.g. 145636)'),
     },
   },
@@ -1150,7 +1150,7 @@ server.registerTool(
     inputSchema: {
       id: z.string()
         .min(5)
-        .max(6)
+        .max(9)
         .describe('TP user story ID (e.g. 145789)'),
     },
   },
@@ -1197,7 +1197,7 @@ server.registerTool(
     inputSchema: {
       resourceId: z.string()
         .min(5)
-        .max(6)
+        .max(9)
         .describe('TP UserStory ID (e.g. 145789)')
     },
   },
@@ -1293,7 +1293,7 @@ server.registerTool(
     inputSchema: {
       resourceId: z.string()
         .min(5)
-        .max(6)
+        .max(9)
         .describe('TP card ID (e.g. 145789)'),
       resourceType: z.enum(['UserStory', 'Bug', 'Feature'])
         .default('UserStory')
@@ -1352,7 +1352,7 @@ server.registerTool(
     inputSchema: {
       testPlanId: z.string()
         .min(5)
-        .max(6)
+        .max(9)
         .describe('Test plan ID to add test cases to (e.g. 145789)'),
       testCases: z.array(z.object({
         name: z.string()
@@ -1453,7 +1453,7 @@ server.registerTool(
     inputSchema: {
       id: z.string()
         .min(5)
-        .max(6)
+        .max(9)
         .describe('TP card ID (e.g. 146055)'),
       resourceType: z.enum(['UserStory', 'Bug', 'Feature'])
         .default('UserStory')
@@ -1475,7 +1475,7 @@ server.registerTool(
     inputSchema: {
       id: z.string()
         .min(5)
-        .max(6)
+        .max(9)
         .describe('TP card ID (e.g. 145789)'),
     },
   },
@@ -1501,11 +1501,11 @@ server.registerTool(
     inputSchema: {
       masterId: z.string()
         .min(5)
-        .max(6)
+        .max(9)
         .describe('Master card ID — the source of the relation (e.g. 145789)'),
       slaveId: z.string()
         .min(5)
-        .max(6)
+        .max(9)
         .describe('Slave card ID — the target of the relation (e.g. 145790)'),
       relationType: z.string()
         .optional()
@@ -1552,7 +1552,7 @@ server.registerTool(
         .describe('Task title'),
       userStoryId: z.string()
         .min(5)
-        .max(6)
+        .max(9)
         .describe('User story ID to link the task to (e.g. 145789)'),
       description: z.string()
         .optional()
@@ -1685,7 +1685,7 @@ server.registerTool(
     inputSchema: {
       id: z.string()
         .min(5)
-        .max(6)
+        .max(9)
         .describe('Test plan ID (e.g. 145789)'),
     },
   }, async ({ id }) => handleGetTestPlanById(tp, id));
@@ -1698,7 +1698,7 @@ server.registerTool(
     inputSchema: {
       id: z.string()
         .min(5)
-        .max(6)
+        .max(9)
         .describe('Test plan ID (e.g. 145789)'),
     },
   }, async ({ id }) => handleGetTestPlanTestCasesById(tp, id));
@@ -1711,7 +1711,7 @@ server.registerTool(
     inputSchema: {
       id: z.string()
         .min(5)
-        .max(6)
+        .max(9)
         .describe('Test plan ID (e.g. 145789)'),
     },
   },
@@ -1726,7 +1726,7 @@ server.registerTool(
     inputSchema: {
       id: z.string()
         .min(5)
-        .max(6)
+        .max(9)
         .describe('Test case ID (e.g. 145789)'),
     },
   },
@@ -1739,7 +1739,7 @@ server.registerTool('update_test_case_by_id', {
   inputSchema: {
     id: z.string()
       .min(5)
-      .max(6)
+      .max(9)
       .describe('Test case ID (e.g. 145789)'),
     name: z.string()
       .optional()
@@ -1756,7 +1756,7 @@ server.registerTool('add_test_case_step_by_id', {
   inputSchema: {
     testCaseId: z.string()
       .min(5)
-      .max(6)
+      .max(9)
       .describe('Test case ID to append the step to (e.g. 145789)'),
     description: z.string()
       .describe('Step action text'),
@@ -1772,7 +1772,7 @@ server.registerTool('update_test_case_step_by_id', {
   inputSchema: {
     id: z.string()
       .min(5)
-      .max(6)
+      .max(9)
       .describe('Test step ID (e.g. 145789)'),
     description: z.string()
       .optional()
@@ -1789,7 +1789,7 @@ server.registerTool('delete_test_case_step_by_id', {
     inputSchema: {
         id: z.string()
             .min(5)
-            .max(6)
+            .max(9)
             .describe('Test step ID (e.g. 145789)'),
     },
 }, async ({ id }) => handleDeleteTestCaseStepById(tp, id));
