@@ -23,6 +23,7 @@ import { handleGetReleaseOpenBugs } from "./handlers/get_release_open_bugs.js";
 import { handleGetReleaseOpenUserStories } from "./handlers/get_release_open_user_stories.js";
 import { handleGetUsers } from "./handlers/get_users.js";
 import { handleGetTeams, handleGetTeamsAndTeamAssignments } from "./handlers/get_teams.js";
+import { handleGetTeamIterations } from "./handlers/get_team_iterations.js";
 import { handleAddComment } from "./handlers/add_comment.js";
 import { handleGetUserStoryComments } from "./handlers/get_user_story_comments.js";
 import { handleGetBugComments } from "./handlers/get_bug_comments.js";
@@ -492,7 +493,8 @@ server.registerTool(
       CRITICAL WORKFLOW: Before calling this tool, you MUST follow these steps:
         1) IF the user specified a team by name (not ID), call "get_teams" to find the matching team and use its ID as teamId;
         2) IF the user specified a project by name (not ID), call "get_projects" to find the matching project and use its ID as projectId;
-        3) IF the user specified a state by name (not ID), call "get_bug_workflows" to find the matching state and use its ID as entityStateId;`,
+        3) IF the user specified a state by name (not ID), call "get_bug_workflows" to find the matching state and use its ID as entityStateId;
+        4) IF the user specified a sprint/iteration by name, call "get_team_iterations" to find the matching iteration and use its ID as teamIterationId;`,
     inputSchema: {
       id: z.string()
         .min(5)
@@ -526,10 +528,16 @@ server.registerTool(
       entityStateId: z.string()
         .optional()
         .describe('Optional Entity State ID — if user gave a state name, resolve it via "get_bug_workflows" first; defaults to "Done"'),
+      tags: z.string()
+        .optional()
+        .describe('Optional comma-separated tags to apply, e.g. "regression, mobile"'),
+      teamIterationId: z.string()
+        .optional()
+        .describe('Optional Team Iteration (sprint) ID — resolve it via "get_team_iterations" first'),
     },
   },
-  async ({ id, title, bugContent, origin, projectId, teamId, entityStateId }) =>
-    handleUpdateBug(tp, { id, title, bugContent, origin, projectId, teamId, entityStateId })
+  async ({ id, title, bugContent, origin, projectId, teamId, entityStateId, tags, teamIterationId }) =>
+    handleUpdateBug(tp, { id, title, bugContent, origin, projectId, teamId, entityStateId, tags, teamIterationId })
 )
 
 server.registerTool(
@@ -566,7 +574,8 @@ server.registerTool(
       CRITICAL WORKFLOW: Before calling this tool, you MUST follow these steps:
         1) IF the user specified a team by name (not ID), call "get_teams" to find the matching team and use its ID as teamId;
         2) IF the user specified a project by name (not ID), call "get_projects" to find the matching project and use its ID as projectId;
-        3) IF the user specified a state by name (not ID), call "get_user_story_workflows" to find the matching state and use its ID as entityStateId;`,
+        3) IF the user specified a state by name (not ID), call "get_user_story_workflows" to find the matching state and use its ID as entityStateId;
+        4) IF the user specified a sprint/iteration by name, call "get_team_iterations" to find the matching iteration and use its ID as teamIterationId;`,
     inputSchema: {
       id: z.string()
         .min(5)
@@ -590,10 +599,16 @@ server.registerTool(
       featureId: z.string()
         .optional()
         .describe('Optional Feature ID — moves this user story to the specified feature'),
+      tags: z.string()
+        .optional()
+        .describe('Optional comma-separated tags to apply, e.g. "regression, mobile"'),
+      teamIterationId: z.string()
+        .optional()
+        .describe('Optional Team Iteration (sprint) ID — resolve it via "get_team_iterations" first'),
     },
   },
-  async ({ id, title, description, projectId, teamId, entityStateId, featureId }) => {
-    const response = await tp.updateUserStory<any>({ id, title, description, projectId, teamId, entityStateId, featureId });
+  async ({ id, title, description, projectId, teamId, entityStateId, featureId, tags, teamIterationId }) => {
+    const response = await tp.updateUserStory<any>({ id, title, description, projectId, teamId, entityStateId, featureId, tags, teamIterationId });
 
     if (!response) {
       return {
@@ -622,7 +637,8 @@ server.registerTool(
       CRITICAL WORKFLOW: Before calling this tool, you MUST follow these steps:
         1) format the new bug inside html <div> tags with Environment(describes where bug was found, dev, feature, review or uat Environment), Issue Description, Steps to Reproduce, Expected Behavior, Actual Behavior and Attachments sections (note: section titles should be wrapped in <h3> tags, e.g. <h3>Issue Description</h3>, step to reproduce should be wrapped in <ol>);
         2) IF the user specified a team by name (not ID), call "get_teams" to find the matching team and use its ID as teamId;
-        3) IF the user specified a project by name (not ID), call "get_projects" to find the matching project and use its ID as projectId;`,
+        3) IF the user specified a project by name (not ID), call "get_projects" to find the matching project and use its ID as projectId;
+        4) IF the user specified a sprint/iteration by name, call "get_team_iterations" to find the matching iteration and use its ID as teamIterationId;`,
     inputSchema: {
       title: z.string()
         .describe('Bug card title that summarizes the problem in concise, descriptive, and actionable manner, enabling a developer to understand the issue without opening the report'),
@@ -651,17 +667,24 @@ server.registerTool(
       entityStateId: z.string()
         .optional()
         .describe('Optional Entity State ID — if user gave a state name, resolve it via "get_bug_workflows" first; defaults to "Done"'),
+      tags: z.string()
+        .optional()
+        .describe('Optional comma-separated tags to apply, e.g. "regression, mobile"'),
+      teamIterationId: z.string()
+        .optional()
+        .describe('Optional Team Iteration (sprint) ID — resolve it via "get_team_iterations" first'),
     },
   },
-  async ({ title, bugContent, origin, projectId, teamId, entityStateId }) =>
-    handleCreateBug(tp, { title, bugContent, origin, projectId, teamId, entityStateId })
+  async ({ title, bugContent, origin, projectId, teamId, entityStateId, tags, teamIterationId }) =>
+    handleCreateBug(tp, { title, bugContent, origin, projectId, teamId, entityStateId, tags, teamIterationId })
 )
 
 server.registerTool(
   'create_user_story',
   {
     title: 'Create a new user story',
-    description: `Create a new user story in Targetprocess.`,
+    description: `Create a new user story in Targetprocess.
+      CRITICAL WORKFLOW: Before calling this tool, IF the user specified a sprint/iteration by name, call "get_team_iterations" to find the matching iteration and use its ID as teamIterationId.`,
     inputSchema: {
       title: z.string()
         .describe('User story title'),
@@ -684,10 +707,16 @@ server.registerTool(
       teamId: z.string()
         .optional()
         .describe('Optional Team ID — defaults to TP_TEAM_ID from config'),
+      tags: z.string()
+        .optional()
+        .describe('Optional comma-separated tags to apply, e.g. "regression, mobile"'),
+      teamIterationId: z.string()
+        .optional()
+        .describe('Optional Team Iteration (sprint) ID — resolve it via "get_team_iterations" first'),
     },
   },
-  async ({ title, description, featureId, releaseId, projectId, teamId }) =>
-    handleCreateUserStory(tp, { title, description, featureId, releaseId, projectId, teamId })
+  async ({ title, description, featureId, releaseId, projectId, teamId, tags, teamIterationId }) =>
+    handleCreateUserStory(tp, { title, description, featureId, releaseId, projectId, teamId, tags, teamIterationId })
 )
 
 server.registerTool(
@@ -700,7 +729,8 @@ server.registerTool(
         1) IF the user specified a feature by name (not ID), call "get_feature_user_stories" or "search_tp_cards" to resolve the feature ID;
         2) IF the user specified a release by name (not ID), call "get_current_releases" to resolve the release ID;
         3) IF the user specified a team by name (not ID), call "get_teams" to find the matching team and use its ID as teamId;
-        4) IF the user specified a project by name (not ID), call "get_projects" to find the matching project and use its ID as projectId;`,
+        4) IF the user specified a project by name (not ID), call "get_projects" to find the matching project and use its ID as projectId;
+        5) IF the user specified a sprint/iteration by name, call "get_team_iterations" to find the matching iteration and use its ID as teamIterationId;`,
     inputSchema: {
       title: z.string()
         .describe('User story title'),
@@ -768,9 +798,15 @@ server.registerTool(
       teamId: z.string()
         .optional()
         .describe('Optional Team ID — defaults to TP_TEAM_ID from config'),
+      tags: z.string()
+        .optional()
+        .describe('Optional comma-separated tags to apply, e.g. "regression, mobile"'),
+      teamIterationId: z.string()
+        .optional()
+        .describe('Optional Team Iteration (sprint) ID — resolve it via "get_team_iterations" first'),
     },
   },
-  async ({ title, header, definitions, acceptanceCriteria, scenarios, examplesTable, edgeCases, references, notes, featureId, releaseId, projectId, teamId }) => {
+  async ({ title, header, definitions, acceptanceCriteria, scenarios, examplesTable, edgeCases, references, notes, featureId, releaseId, projectId, teamId, tags, teamIterationId }) => {
     const gherkinBlock = (items: { name: string; steps: string[] }[]) =>
       items.map((s, indx) => `<div><strong>Scenario ${indx + 1} - ${s.name}:</strong></div><div>${s.steps.map(step => `<div>\t${step}</div>`).join('\n')}</div>`).join('<br>')
 
@@ -823,7 +859,7 @@ server.registerTool(
 
     const description = parts.join('\n')
 
-    const userStoryResponse = await tp.createUserStory<TP.UserStory>({ title, description, featureId, releaseId, projectId, teamId });
+    const userStoryResponse = await tp.createUserStory<TP.UserStory>({ title, description, featureId, releaseId, projectId, teamId, tags, teamIterationId });
 
     if (!userStoryResponse) {
       return {
@@ -1162,6 +1198,21 @@ server.registerTool(
     description: 'Get all Targetprocess teams',
   },
   async () => handleGetTeams(tp)
+);
+
+server.registerTool(
+  'get_team_iterations',
+  {
+    title: 'Get team iterations',
+    description: `Get Targetprocess team iterations (sprints), optionally filtered by team. Use this to resolve a sprint/iteration name to an ID before calling create_user_story, create_bug, update_user_story, or update_bug with teamIterationId.
+      CRITICAL WORKFLOW: IF the user specified a team by name (not ID), call "get_teams" first to find the matching team and use its ID as teamId.`,
+    inputSchema: {
+      teamId: z.string()
+        .optional()
+        .describe('Optional Team ID to filter iterations by — resolve it via "get_teams" first'),
+    },
+  },
+  async ({ teamId }) => handleGetTeamIterations(tp, { teamId })
 );
 
 server.registerTool(

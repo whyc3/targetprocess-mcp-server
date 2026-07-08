@@ -234,8 +234,10 @@ export class TpClient {
     projectId,
     teamId,
     entityStateId,
-    featureId
-  }: { id: string, title?: string, description?: string, projectId?: string, teamId?: string, teamAssignmentId?: string, entityStateId?: string, featureId?: string }): Promise<T> {
+    featureId,
+    tags,
+    teamIterationId
+  }: { id: string, title?: string, description?: string, projectId?: string, teamId?: string, teamAssignmentId?: string, entityStateId?: string, featureId?: string, tags?: string, teamIterationId?: string }): Promise<T> {
     const userStory: Record<string, any> = { "Id": id }
 
     if (title) userStory["Name"] = title
@@ -244,6 +246,8 @@ export class TpClient {
     if (teamId) userStory["assignedTeams"] = [{ "team": { "id": teamId } }]
     if (entityStateId) userStory["EntityState"] = { "Id": entityStateId }
     if (featureId) userStory["Feature"] = { "Id": featureId }
+    if (tags) userStory["Tags"] = tags
+    if (teamIterationId) userStory["TeamIteration"] = { "Id": teamIterationId }
 
     return this.post<any, T>({
       pathParam: ["UserStories"],
@@ -251,7 +255,7 @@ export class TpClient {
     }, userStory) as T
   }
 
-  async updateBug<T>({ id, title, bugContent, origin, projectId, teamId, entityStateId }: { id: string, title?: string, bugContent?: string, origin?: string, projectId?: string, teamId?: string, entityStateId?: string }): Promise<T> {
+  async updateBug<T>({ id, title, bugContent, origin, projectId, teamId, entityStateId, tags, teamIterationId }: { id: string, title?: string, bugContent?: string, origin?: string, projectId?: string, teamId?: string, entityStateId?: string, tags?: string, teamIterationId?: string }): Promise<T> {
     const bug: Record<string, any> = { "Id": id }
 
     if (title) bug["Name"] = title
@@ -268,6 +272,8 @@ export class TpClient {
       }
     }]
     if (entityStateId) bug["entityState"] = { "id": entityStateId }
+    if (tags) bug["Tags"] = tags
+    if (teamIterationId) bug["TeamIteration"] = { "Id": teamIterationId }
 
     return this.post<any, T>({
       pathParam: ["bugs"],
@@ -275,7 +281,7 @@ export class TpClient {
     }, bug) as T
   }
 
-  async createBugOnly<T>({ title, bugContent, origin = "Manual QA", projectId, teamId, entityStateId }: BugInputSchema): Promise<T> {
+  async createBugOnly<T>({ title, bugContent, origin = "Manual QA", projectId, teamId, entityStateId, tags, teamIterationId }: BugInputSchema): Promise<T> {
     const bug: Record<string, any> = {
       "Name": title,
       "Project": {
@@ -295,6 +301,8 @@ export class TpClient {
     }
 
     if (entityStateId) bug["EntityState"] = { "Id": entityStateId }
+    if (tags) bug["Tags"] = tags
+    if (teamIterationId) bug["TeamIteration"] = { "Id": teamIterationId }
 
     return this.post<any, T>({
       pathParam: ["bugs"],
@@ -302,7 +310,7 @@ export class TpClient {
     }, bug) as T
   }
 
-  async createUserStory<T>({ title, description, featureId, releaseId, projectId, teamId }: { title: string, description?: string, featureId?: string, releaseId?: string, projectId?: string, teamId?: string }): Promise<T> {
+  async createUserStory<T>({ title, description, featureId, releaseId, projectId, teamId, tags, teamIterationId }: { title: string, description?: string, featureId?: string, releaseId?: string, projectId?: string, teamId?: string, tags?: string, teamIterationId?: string }): Promise<T> {
     const userStory: Record<string, any> = {
       "Name": title,
       "Project": { "Id": projectId || config.tp.projectId },
@@ -312,11 +320,24 @@ export class TpClient {
     if (description) userStory["Description"] = description
     if (featureId) userStory["Feature"] = { "Id": featureId }
     if (releaseId) userStory["Release"] = { "Id": releaseId }
+    if (tags) userStory["Tags"] = tags
+    if (teamIterationId) userStory["TeamIteration"] = { "Id": teamIterationId }
 
     return this.post<any, T>({
       pathParam: ["UserStories"],
       param: { "format": "json" },
     }, userStory) as T
+  }
+
+  async getTeamIterations<T>({ teamId }: { teamId?: string } = {}): Promise<T> {
+    return this.get<T>({
+      pathParam: ["TeamIterations"],
+      param: {
+        "format": "json",
+        ...(teamId ? { "where": `Team.Id eq ${teamId}` } : {}),
+        "include": "[Id,Name,StartDate,EndDate,Team[Id,Name]]",
+      },
+    }) as T
   }
 
 
