@@ -10,6 +10,8 @@ export async function handleUpdateBug(
     projectId?: string
     teamId?: string
     entityStateId?: string
+    tags?: string
+    teamIterationId?: string
   },
 ) {
   const bugResponse = await tp.updateBug<any>(params)
