@@ -47,6 +47,20 @@ import { handleUpdateUserStorySubState } from "./handlers/update_user_story_sub_
 import { handleGetCardRelations } from "./handlers/get_card_relations.js";
 import { handleCreateCardRelation } from "./handlers/create_card_relation.js";
 import { handleDeleteCardRelation } from "./handlers/delete_card_relation.js";
+import { handleGetTestPlanById } from "./handlers/get_test_plan_by_id.js";
+import { handleGetTestPlanTestCasesById } from "./handlers/get_test_plan_test_cases_by_id.js";
+import { handleGetTestPlanTestCasesWithStepsById } from "./handlers/get_test_plan_test_cases_with_steps_by_id.js";
+import { handleGetTestCaseById } from "./handlers/get_test_case_by_id.js";
+import { handleUpdateTestCaseById } from "./handlers/update_test_case_by_id.js";
+import { handleAddTestCaseStepById } from "./handlers/add_test_case_step_by_id.js";
+import { handleUpdateTestCaseStepById } from "./handlers/update_test_case_step_by_id.js";
+import { handleDeleteTestCaseStepById } from "./handlers/delete_test_case_step_by_id.js";
+import { handleGetProcessWorkflows } from "./handlers/get_process_workflows.js";
+import { handleGetProcesses } from "./handlers/get_processes.js";
+import { handleGetBugWorkflows } from "./handlers/get_bug_workflows.js";
+import { handleGetUserStoryWorkflows } from "./handlers/get_user_story_workflows.js";
+import { handleGetRelationTypes } from "./handlers/get_relation_types.js";
+import { handleGetVersion } from "./handlers/get_version.js";
 
 const server = new McpServer(
   {
@@ -79,7 +93,7 @@ server.registerTool(
     inputSchema: {
       id: z.string()
         .min(5)
-        .max(6)
+        .max(9)
         .describe('TP (or tp) ID (e.g. 145789)')
     },
   },
@@ -121,12 +135,14 @@ server.registerTool(
       name: z.string()
         .describe('Release name'),
       results: z.number()
-        .default(100)
+        .default(300)
         .optional()
         .describe('Number of results to return, default is 100'),
+      withDescription: z.boolean()
+        .describe('Include description in the response'),
     },
   },
-  async ({ name, results }) => handleGetReleaseBugs(tp, name, results)
+  async ({ name, results, withDescription }) => handleGetReleaseBugs(tp, name, results, withDescription)
 );
 
 server.registerTool(
@@ -269,7 +285,7 @@ server.registerTool(
     inputSchema: {
       id: z.string()
         .min(5)
-        .max(6)
+        .max(9)
         .describe('Bug card ID (e.g. 145789)')
     },
   },
@@ -310,7 +326,7 @@ server.registerTool(
     inputSchema: {
       id: z.string()
         .min(5)
-        .max(6)
+        .max(9)
         .describe('TP card id, usually user story or bug ID (e.g. 145789)'),
       comment: z.string()
         .describe('Comment content to add'),
@@ -364,7 +380,7 @@ server.registerTool(
     inputSchema: {
       id: z.string()
         .min(5)
-        .max(6)
+        .max(9)
         .describe('TP card id, usually user story or bug ID (e.g. 145789)'),
       comment: z.string()
         .describe('Comment content to add'),
@@ -381,7 +397,7 @@ server.registerTool(
     inputSchema: {
       id: z.string()
         .min(5)
-        .max(6)
+        .max(9)
         .describe('TP user story ID (e.g. 145789)'),
       results: z.number()
         .default(25)
@@ -400,7 +416,7 @@ server.registerTool(
     inputSchema: {
       id: z.string()
         .min(5)
-        .max(6)
+        .max(9)
         .describe('TP bug ID (e.g. 145789)'),
       results: z.number()
         .default(25)
@@ -430,7 +446,7 @@ server.registerTool(
       card: z.object({
         id: z.string()
           .min(5)
-          .max(6)
+          .max(9)
           .describe(`Usually user story id, bug ID, or feature ID (e.g. 145789)`),
         type: z.enum(["UserStory", "Bug", "Feature"])
       }),
@@ -496,7 +512,7 @@ server.registerTool(
     inputSchema: {
       id: z.string()
         .min(5)
-        .max(6)
+        .max(9)
         .describe('Bug card ID (e.g. 145789)'),
       title: z.string()
         .optional()
@@ -543,7 +559,7 @@ server.registerTool(
     inputSchema: {
       id: z.string()
         .min(5)
-        .max(6)
+        .max(9)
         .describe('User story card ID (e.g. 145789)'),
       entityStateId: z.string()
         .optional()
@@ -570,7 +586,7 @@ server.registerTool(
     inputSchema: {
       id: z.string()
         .min(5)
-        .max(6)
+        .max(9)
         .describe('User story card ID (e.g. 145789)'),
       title: z.string()
         .optional()
@@ -670,12 +686,12 @@ server.registerTool(
         .describe('Optional user story description (when provided, format as HTML)'),
       featureId: z.string()
         .min(5)
-        .max(6)
+        .max(9)
         .optional()
         .describe('Optional Feature ID to link this user story to (e.g. 145636)'),
       releaseId: z.string()
         .min(5)
-        .max(6)
+        .max(9)
         .optional()
         .describe('Optional Release ID to link this user story to (e.g. 145200)'),
       projectId: z.string()
@@ -754,12 +770,12 @@ server.registerTool(
         .describe('Anything that helps understand the story context but does not fit other sections'),
       featureId: z.string()
         .min(5)
-        .max(6)
+        .max(9)
         .optional()
         .describe('Optional Feature ID to link this user story to (e.g. 145636)'),
       releaseId: z.string()
         .min(5)
-        .max(6)
+        .max(9)
         .optional()
         .describe('Optional Release ID to link this user story to (e.g. 145200)'),
       projectId: z.string()
@@ -856,12 +872,12 @@ server.registerTool(
         .describe('Optional feature description (when provided, format as HTML)'),
       epicId: z.string()
         .min(5)
-        .max(6)
+        .max(9)
         .optional()
         .describe('Optional Epic ID to link this feature to (e.g. 145636)'),
       releaseId: z.string()
         .min(5)
-        .max(6)
+        .max(9)
         .optional()
         .describe('Optional Release ID to link this feature to (e.g. 145200)'),
       projectId: z.string()
@@ -889,7 +905,7 @@ server.registerTool(
         .describe('Optional epic description (when provided, format as HTML)'),
       releaseId: z.string()
         .min(5)
-        .max(6)
+        .max(9)
         .optional()
         .describe('Optional Release ID to link this epic to (e.g. 145200)'),
       projectId: z.string()
@@ -909,7 +925,7 @@ server.registerTool(
     inputSchema: {
       id: z.string()
         .min(5)
-        .max(6)
+        .max(9)
         .describe('Epic ID (e.g. 148813)'),
     },
   },
@@ -924,7 +940,7 @@ server.registerTool(
     inputSchema: {
       id: z.string()
         .min(5)
-        .max(6)
+        .max(9)
         .describe('Epic ID (e.g. 148813)'),
       title: z.string()
         .optional()
@@ -934,7 +950,7 @@ server.registerTool(
         .describe('Updated epic description (format as HTML)'),
       releaseId: z.string()
         .min(5)
-        .max(6)
+        .max(9)
         .optional()
         .describe('Optional Release ID to link this epic to'),
       projectId: z.string()
@@ -954,7 +970,7 @@ server.registerTool(
     inputSchema: {
       id: z.string()
         .min(5)
-        .max(6)
+        .max(9)
         .describe('Epic ID (e.g. 148813)'),
     },
   },
@@ -971,7 +987,7 @@ server.registerTool(
         .describe('Test plan title — use the linked card name'),
       resourceId: z.string()
         .min(5)
-        .max(6)
+        .max(9)
         .describe('ID of the card to link this test plan to (e.g. 145789)'),
       resourceType: z.enum(['UserStory', 'Bug', 'Feature'])
         .default('UserStory')
@@ -1011,7 +1027,7 @@ server.registerTool(
     inputSchema: {
       id: z.string()
         .min(5)
-        .max(6)
+        .max(9)
         .describe('TP feature ID (e.g. 145636)'),
     },
   },
@@ -1119,7 +1135,7 @@ server.registerTool(
     inputSchema: {
       id: z.string()
         .min(5)
-        .max(6)
+        .max(9)
         .describe('TP feature ID (e.g. 145636)'),
     },
   },
@@ -1134,7 +1150,7 @@ server.registerTool(
     inputSchema: {
       id: z.string()
         .min(5)
-        .max(6)
+        .max(9)
         .describe('TP user story ID (e.g. 145789)'),
     },
   },
@@ -1181,7 +1197,7 @@ server.registerTool(
     inputSchema: {
       resourceId: z.string()
         .min(5)
-        .max(6)
+        .max(9)
         .describe('TP UserStory ID (e.g. 145789)')
     },
   },
@@ -1277,7 +1293,7 @@ server.registerTool(
     inputSchema: {
       resourceId: z.string()
         .min(5)
-        .max(6)
+        .max(9)
         .describe('TP card ID (e.g. 145789)'),
       resourceType: z.enum(['UserStory', 'Bug', 'Feature'])
         .default('UserStory')
@@ -1336,7 +1352,7 @@ server.registerTool(
     inputSchema: {
       testPlanId: z.string()
         .min(5)
-        .max(6)
+        .max(9)
         .describe('Test plan ID to add test cases to (e.g. 145789)'),
       testCases: z.array(z.object({
         name: z.string()
@@ -1400,35 +1416,7 @@ server.registerTool(
         .describe('Process ID (e.g. 145636)'),
     },
   },
-  async ({ processId }) => {
-    const response = await tp.getProcessWorkflows<TP.TpResponseV2<TP.ProcessV2>>({ processId })
-
-    if (!response) {
-      return {
-        content: [{
-          type: 'text',
-          text: `Failed to get process workflows, JSON: ${JSON.stringify(response, null, 2)}`
-        }],
-      }
-    }
-
-    const items = response.items || [];
-    if (items.length === 0) {
-      return {
-        content: [{
-          type: 'text',
-          text: `No process workflows found`,
-        }],
-      };
-    }
-
-    return {
-      content: [{
-        type: 'text',
-        text: JSON.stringify(items)
-      }],
-    };
-  }
+  async ({ processId }) => handleGetProcessWorkflows(tp, processId)
 )
 
 server.registerTool(
@@ -1437,35 +1425,7 @@ server.registerTool(
     title: 'Get processes',
     description: 'Get all Targetprocess processes',
   },
-  async ({ }) => {
-    const response = await tp.getProcesses<TP.TpResponseV2<TP.ProcessV2>>()
-
-    if (!response) {
-      return {
-        content: [{
-          type: 'text',
-          text: `Failed to get processes, JSON: ${JSON.stringify(response, null, 2)}`
-        }],
-      }
-    }
-
-    const items = response.items || [];
-    if (items.length === 0) {
-      return {
-        content: [{
-          type: 'text',
-          text: `No processes found`,
-        }],
-      };
-    }
-
-    return {
-      content: [{
-        type: 'text',
-        text: JSON.stringify(items)
-      }],
-    };
-  }
+  async () => handleGetProcesses(tp)
 )
 
 server.registerTool(
@@ -1474,46 +1434,7 @@ server.registerTool(
     title: 'Get bug workflows',
     description: 'Get all Targetprocess bug workflows',
   },
-  async ({ }) => {
-    const response = await tp.getBugWorkflows<TP.TpResponseV2<TP.WorkflowV2>>()
-
-    if (!response) {
-      return {
-        content: [{
-          type: 'text',
-          text: `Failed to get bug entity statuses, JSON: ${JSON.stringify(response, null, 2)}`
-        }],
-      }
-    }
-
-    const items = response.items || []
-    if (items.length === 0) {
-      return {
-        content: [{
-          type: 'text',
-          text: `No status data found for workflows`
-        }],
-      }
-    }
-
-    const workflows = items.map((w) => ({
-      id: w.id,
-      name: w.name,
-      processId: w.process,
-      entityType: w.entityType,
-      entityStates: w.entityStates.map((es) => ({
-        id: es.id,
-        name: es.name,
-      })),
-    }))
-
-    return {
-      content: [{
-        type: 'text',
-        text: JSON.stringify(workflows)
-      }],
-    };
-  })
+  async () => handleGetBugWorkflows(tp))
 
 server.registerTool(
   'get_user_story_workflows',
@@ -1521,46 +1442,7 @@ server.registerTool(
     title: 'Get User Story workflows',
     description: 'Get all Targetprocess user story workflows, with sub-states',
   },
-  async ({ }) => {
-    const response = await tp.getUserStoryWorkflowsWithSubStates<TP.TpResponseV2<TP.WorkflowV2WithSubStates>>()
-
-    if (!response) {
-      return {
-        content: [{
-          type: 'text',
-          text: `Failed to get user story entity statuses, JSON: ${JSON.stringify(response, null, 2)}`
-        }],
-      }
-    }
-
-    const items = response.items || []
-    if (items.length === 0) {
-      return {
-        content: [{
-          type: 'text',
-          text: `No status data found for workflows`
-        }],
-      }
-    }
-
-    const userStoryWorkflows = items.filter((w) => w.entityType.name === "UserStory")
-    const workflows = userStoryWorkflows.map((w) => ({
-      id: w.id,
-      processId: w.workflow.process.id,
-      entityType: w.entityType.name,
-      entityStates: w.subEntityStates.map((es) => ({
-        id: es.id,
-        name: es.name,
-      })),
-    }))
-
-    return {
-      content: [{
-        type: 'text',
-        text: JSON.stringify(workflows)
-      }],
-    };
-  }
+  async () => handleGetUserStoryWorkflows(tp)
 )
 
 server.registerTool(
@@ -1571,7 +1453,7 @@ server.registerTool(
     inputSchema: {
       id: z.string()
         .min(5)
-        .max(6)
+        .max(9)
         .describe('TP card ID (e.g. 146055)'),
       resourceType: z.enum(['UserStory', 'Bug', 'Feature'])
         .default('UserStory')
@@ -1593,7 +1475,7 @@ server.registerTool(
     inputSchema: {
       id: z.string()
         .min(5)
-        .max(6)
+        .max(9)
         .describe('TP card ID (e.g. 145789)'),
     },
   },
@@ -1606,20 +1488,7 @@ server.registerTool(
     title: 'Get relation types',
     description: 'Get all relation types available in this Targetprocess instance (id + name). Use this to find the correct relationType name for "create_card_relation".',
   },
-  async () => {
-    const response = await tp.getRelationTypes<TP.TpResponse<TP.RelationType>>()
-
-    if (!response) {
-      return {
-        content: [{ type: 'text', text: `Failed to get relation types` }],
-      }
-    }
-
-    const items = (response.Items || []).map((t) => ({ id: t.Id, name: t.Name }))
-    return {
-      content: [{ type: 'text', text: JSON.stringify(items) }],
-    }
-  }
+  async () => handleGetRelationTypes(tp)
 )
 
 server.registerTool(
@@ -1632,11 +1501,11 @@ server.registerTool(
     inputSchema: {
       masterId: z.string()
         .min(5)
-        .max(6)
+        .max(9)
         .describe('Master card ID — the source of the relation (e.g. 145789)'),
       slaveId: z.string()
         .min(5)
-        .max(6)
+        .max(9)
         .describe('Slave card ID — the target of the relation (e.g. 145790)'),
       relationType: z.string()
         .optional()
@@ -1683,7 +1552,7 @@ server.registerTool(
         .describe('Task title'),
       userStoryId: z.string()
         .min(5)
-        .max(6)
+        .max(9)
         .describe('User story ID to link the task to (e.g. 145789)'),
       description: z.string()
         .optional()
@@ -1754,8 +1623,7 @@ server.registerTool(
         .describe('Pagination offset, default is 0'),
     },
   },
-  async ({ state, take, skip }) => handleListMyBugs(tp, { state, take, skip })
-)
+  async ({ state, take, skip }) => handleListMyBugs(tp, { state, take, skip }))
 
 server.registerTool(
   'log_time',
@@ -1779,9 +1647,7 @@ server.registerTool(
         .describe('ISO date string, defaults to today (e.g. "2024-05-21")'),
     },
   },
-  async ({ entityId, entityType, hours, description, date }) =>
-    handleLogTime(tp, { entityId, entityType, hours, description, date })
-)
+  async ({ entityId, entityType, hours, description, date }) => handleLogTime(tp, { entityId, entityType, hours, description, date }))
 
 server.registerTool(
   'get_my_time_logs',
@@ -1808,10 +1674,125 @@ server.registerTool(
     description: 'Returns the current version of the MCP server from package.json.',
     inputSchema: {},
   },
-  async () => ({
-    content: [{ type: "text", text: version }]
-  })
+  async () => handleGetVersion(version)
 )
+
+server.registerTool(
+  'get_test_plan_by_id',
+  {
+    title: 'Get test plan by ID',
+    description: 'Get a Targetprocess Test Plan by its ID, including name, plain-text description, state, and linked card.',
+    inputSchema: {
+      id: z.string()
+        .min(5)
+        .max(9)
+        .describe('Test plan ID (e.g. 145789)'),
+    },
+  }, async ({ id }) => handleGetTestPlanById(tp, id));
+
+server.registerTool(
+  'get_test_plan_test_cases_by_id',
+  {
+    title: 'Get test plan test cases by ID',
+    description: 'Get test cases belonging to a Targetprocess Test Plan by plan ID, including cases in nested child test plans/containers. Returns id, name, plain-text description, and containing test plan metadata (no steps).',
+    inputSchema: {
+      id: z.string()
+        .min(5)
+        .max(9)
+        .describe('Test plan ID (e.g. 145789)'),
+    },
+  }, async ({ id }) => handleGetTestPlanTestCasesById(tp, id));
+
+server.registerTool(
+  'get_test_plan_test_cases_with_steps_by_id',
+  {
+    title: 'Get test plan test cases with steps by ID',
+    description: 'Get test cases belonging to a Targetprocess Test Plan by plan ID, including nested child test plans/containers and each test case steps.',
+    inputSchema: {
+      id: z.string()
+        .min(5)
+        .max(9)
+        .describe('Test plan ID (e.g. 145789)'),
+    },
+  },
+  async ({ id }) => handleGetTestPlanTestCasesWithStepsById(tp, id)
+);
+
+server.registerTool(
+  'get_test_case_by_id',
+  {
+    title: 'Get test case by ID',
+    description: 'Get a single Targetprocess Test Case by its ID, including plain-text description and its steps.',
+    inputSchema: {
+      id: z.string()
+        .min(5)
+        .max(9)
+        .describe('Test case ID (e.g. 145789)'),
+    },
+  },
+  async ({ id }) => handleGetTestCaseById(tp, id));
+
+
+server.registerTool('update_test_case_by_id', {
+  title: 'Update test case by ID',
+  description: 'Update a Targetprocess Test Case by its ID. Supports name and description only.',
+  inputSchema: {
+    id: z.string()
+      .min(5)
+      .max(9)
+      .describe('Test case ID (e.g. 145789)'),
+    name: z.string()
+      .optional()
+      .describe('Updated test case name'),
+    description: z.string()
+      .optional()
+      .describe('Updated test case description (format as HTML or plain text)'),
+  },
+}, async ({ id, name, description }) => handleUpdateTestCaseById(tp, { id, name, description }));
+
+server.registerTool('add_test_case_step_by_id', {
+  title: 'Add test case step by test case ID',
+  description: 'Add a new step to a Targetprocess Test Case. Despite tool name consistency, this takes testCaseId, not a step ID.',
+  inputSchema: {
+    testCaseId: z.string()
+      .min(5)
+      .max(9)
+      .describe('Test case ID to append the step to (e.g. 145789)'),
+    description: z.string()
+      .describe('Step action text'),
+    result: z.string()
+      .describe('Expected result for this step'),
+  },
+}, async ({ testCaseId, description, result }) => handleAddTestCaseStepById(tp, { testCaseId, description, result }));
+
+
+server.registerTool('update_test_case_step_by_id', {
+  title: 'Update test case step by ID',
+  description: 'Update a Targetprocess Test Step by its ID. Supports description and result only.',
+  inputSchema: {
+    id: z.string()
+      .min(5)
+      .max(9)
+      .describe('Test step ID (e.g. 145789)'),
+    description: z.string()
+      .optional()
+      .describe('Updated step action text'),
+    result: z.string()
+      .optional()
+      .describe('Updated expected result for this step'),
+  },
+}, async ({ id, description, result }) => handleUpdateTestCaseStepById(tp, { id, description, result }));
+
+server.registerTool('delete_test_case_step_by_id', {
+    title: 'Delete test case step by ID',
+    description: 'Delete a Targetprocess Test Step by its ID.',
+    inputSchema: {
+        id: z.string()
+            .min(5)
+            .max(9)
+            .describe('Test step ID (e.g. 145789)'),
+    },
+}, async ({ id }) => handleDeleteTestCaseStepById(tp, id));
 
 async function main() {
   const transport = new StdioServerTransport();
