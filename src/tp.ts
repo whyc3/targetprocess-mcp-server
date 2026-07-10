@@ -49,6 +49,12 @@ export class TpClient {
     return _url + "/?" + _urlParams.join("&")
   }
 
+  // Strips the access_token value out of a URL before it's logged, so the
+  // live TP credential never ends up in stderr/log files.
+  private redact(url: string): string {
+    return url.replace(this.token, "***")
+  }
+
   // @ts-ignore
   private async getAll<T>(params: TpClientParameters): Promise<T[]> {
     const allItems: T[] = []
@@ -84,7 +90,7 @@ export class TpClient {
       return (await response.json()) as T
     } catch (error) {
       console.error("Error making TP request:", error);
-      console.error("Request URL:", _url);
+      console.error("Request URL:", this.redact(_url));
       return null;
     }
   }
@@ -92,7 +98,7 @@ export class TpClient {
   private async post<T, U>(params: TpClientParameters, data: T): Promise<U | null> {
     params.param["access_token"] = this.token
     let _url = this.params(params)
-    console.error(JSON.stringify({ "TP_POST_URL": _url }))
+    console.error(JSON.stringify({ "TP_POST_URL": this.redact(_url) }))
     console.error(JSON.stringify({ "TP_POST_BODY": data }))
     try {
       const response = await fetch(_url, {
@@ -115,7 +121,7 @@ export class TpClient {
   private async postRaw<T, U>(params: TpClientParameters, data: T): Promise<TpResult<U>> {
     params.param["access_token"] = this.token
     let _url = this.params(params)
-    console.error(JSON.stringify({ "TP_POST_URL": _url }))
+    console.error(JSON.stringify({ "TP_POST_URL": this.redact(_url) }))
     console.error(JSON.stringify({ "TP_POST_BODY": data }))
     try {
       const response = await fetch(_url, {
@@ -140,7 +146,7 @@ export class TpClient {
   private async del<U>(params: TpClientParameters): Promise<TpResult<U>> {
     params.param["access_token"] = this.token
     let _url = this.params(params)
-    console.error(JSON.stringify({ "TP_DELETE_URL": _url }))
+    console.error(JSON.stringify({ "TP_DELETE_URL": this.redact(_url) }))
     try {
       const response = await fetch(_url, {
         method: "DELETE",
@@ -276,8 +282,10 @@ export class TpClient {
     projectId,
     teamId,
     entityStateId,
-    featureId
-  }: { id: string, title?: string, description?: string, projectId?: string, teamId?: string, teamAssignmentId?: string, entityStateId?: string, featureId?: string }): Promise<T> {
+    featureId,
+    tags,
+    teamIterationId
+  }: { id: string, title?: string, description?: string, projectId?: string, teamId?: string, teamAssignmentId?: string, entityStateId?: string, featureId?: string, tags?: string, teamIterationId?: string }): Promise<T> {
     const userStory: Record<string, any> = { "Id": id }
 
     if (title) userStory["Name"] = title
@@ -286,6 +294,8 @@ export class TpClient {
     if (teamId) userStory["assignedTeams"] = [{ "team": { "id": teamId } }]
     if (entityStateId) userStory["EntityState"] = { "Id": entityStateId }
     if (featureId) userStory["Feature"] = { "Id": featureId }
+    if (tags) userStory["Tags"] = tags
+    if (teamIterationId) userStory["TeamIteration"] = { "Id": teamIterationId }
 
     return this.post<any, T>({
       pathParam: ["UserStories"],
@@ -293,7 +303,7 @@ export class TpClient {
     }, userStory) as T
   }
 
-  async updateBug<T>({ id, title, bugContent, origin, projectId, teamId, entityStateId }: { id: string, title?: string, bugContent?: string, origin?: string, projectId?: string, teamId?: string, entityStateId?: string }): Promise<T> {
+  async updateBug<T>({ id, title, bugContent, origin, projectId, teamId, entityStateId, tags, teamIterationId }: { id: string, title?: string, bugContent?: string, origin?: string, projectId?: string, teamId?: string, entityStateId?: string, tags?: string, teamIterationId?: string }): Promise<T> {
     const bug: Record<string, any> = { "Id": id }
 
     if (title) bug["Name"] = title
@@ -310,6 +320,8 @@ export class TpClient {
       }
     }]
     if (entityStateId) bug["entityState"] = { "id": entityStateId }
+    if (tags) bug["Tags"] = tags
+    if (teamIterationId) bug["TeamIteration"] = { "Id": teamIterationId }
 
     return this.post<any, T>({
       pathParam: ["bugs"],
@@ -317,7 +329,7 @@ export class TpClient {
     }, bug) as T
   }
 
-  async createBugOnly<T>({ title, bugContent, origin = "Manual QA", projectId, teamId, entityStateId }: BugInputSchema): Promise<T> {
+  async createBugOnly<T>({ title, bugContent, origin = "Manual QA", projectId, teamId, entityStateId, tags, teamIterationId }: BugInputSchema): Promise<T> {
     const bug: Record<string, any> = {
       "Name": title,
       "Project": {
@@ -337,6 +349,8 @@ export class TpClient {
     }
 
     if (entityStateId) bug["EntityState"] = { "Id": entityStateId }
+    if (tags) bug["Tags"] = tags
+    if (teamIterationId) bug["TeamIteration"] = { "Id": teamIterationId }
 
     return this.post<any, T>({
       pathParam: ["bugs"],
@@ -344,7 +358,7 @@ export class TpClient {
     }, bug) as T
   }
 
-  async createUserStory<T>({ title, description, featureId, releaseId, projectId, teamId }: { title: string, description?: string, featureId?: string, releaseId?: string, projectId?: string, teamId?: string }): Promise<T> {
+  async createUserStory<T>({ title, description, featureId, releaseId, projectId, teamId, tags, teamIterationId }: { title: string, description?: string, featureId?: string, releaseId?: string, projectId?: string, teamId?: string, tags?: string, teamIterationId?: string }): Promise<T> {
     const userStory: Record<string, any> = {
       "Name": title,
       "Project": { "Id": projectId || config.tp.projectId },
@@ -354,11 +368,24 @@ export class TpClient {
     if (description) userStory["Description"] = description
     if (featureId) userStory["Feature"] = { "Id": featureId }
     if (releaseId) userStory["Release"] = { "Id": releaseId }
+    if (tags) userStory["Tags"] = tags
+    if (teamIterationId) userStory["TeamIteration"] = { "Id": teamIterationId }
 
     return this.post<any, T>({
       pathParam: ["UserStories"],
       param: { "format": "json" },
     }, userStory) as T
+  }
+
+  async getTeamIterations<T>({ teamId }: { teamId?: string } = {}): Promise<T> {
+    return this.get<T>({
+      pathParam: ["TeamIterations"],
+      param: {
+        "format": "json",
+        ...(teamId ? { "where": `Team.Id eq ${teamId}` } : {}),
+        "include": "[Id,Name,StartDate,EndDate,Team[Id,Name]]",
+      },
+    }) as T
   }
 
 
@@ -1249,7 +1276,7 @@ export class TpClient {
     formData.append("file", blob, fileName)
 
     const url = `${this.baseUrl}/UploadFile.ashx?access_token=${this.token}`
-    console.error(JSON.stringify({ "UPLOAD_URL": url.replace(this.token, "***") }, null, 2))
+    console.error(JSON.stringify({ "UPLOAD_URL": this.redact(url) }, null, 2))
 
     try {
       const response = await fetch(url, {

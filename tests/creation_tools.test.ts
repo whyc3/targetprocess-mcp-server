@@ -50,6 +50,18 @@ describe('handleCreateBug', () => {
       title: 'Bug', bugContent: 'content', origin: 'Manual QA', projectId: '10', teamId: '20',
     })
   })
+
+  it('passes tags and teamIterationId to createBugOnly', async () => {
+    vi.mocked(mockTp.createBugOnly).mockResolvedValue({ Id: 1 } as any)
+
+    await handleCreateBug(mockTp, {
+      title: 'Bug', bugContent: 'content', tags: 'regression, mobile', teamIterationId: '789',
+    })
+
+    expect(mockTp.createBugOnly).toHaveBeenCalledWith({
+      title: 'Bug', bugContent: 'content', tags: 'regression, mobile', teamIterationId: '789',
+    })
+  })
 })
 
 describe('handleCreateUserStory', () => {
@@ -78,6 +90,16 @@ describe('handleCreateUserStory', () => {
 
     expect(mockTp.createUserStory).toHaveBeenCalledWith({
       title: 'Story', featureId: '123', releaseId: '456',
+    })
+  })
+
+  it('passes tags and teamIterationId to createUserStory', async () => {
+    vi.mocked(mockTp.createUserStory).mockResolvedValue({ Id: 1 } as any)
+
+    await handleCreateUserStory(mockTp, { title: 'Story', tags: 'regression, mobile', teamIterationId: '789' })
+
+    expect(mockTp.createUserStory).toHaveBeenCalledWith({
+      title: 'Story', tags: 'regression, mobile', teamIterationId: '789',
     })
   })
 })
@@ -153,6 +175,14 @@ describe('handleUpdateBug', () => {
     await handleUpdateBug(mockTp, { id: '100', title: 'T', bugContent: 'B', entityStateId: '5' })
 
     expect(mockTp.updateBug).toHaveBeenCalledWith({ id: '100', title: 'T', bugContent: 'B', entityStateId: '5' })
+  })
+
+  it('passes tags and teamIterationId to updateBug', async () => {
+    vi.mocked(mockTp.updateBug).mockResolvedValue({ Id: 1 } as any)
+
+    await handleUpdateBug(mockTp, { id: '100', tags: 'regression, mobile', teamIterationId: '789' })
+
+    expect(mockTp.updateBug).toHaveBeenCalledWith({ id: '100', tags: 'regression, mobile', teamIterationId: '789' })
   })
 })
 

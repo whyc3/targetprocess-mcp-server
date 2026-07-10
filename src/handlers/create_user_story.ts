@@ -10,6 +10,8 @@ export async function handleCreateUserStory(
     releaseId?: string
     projectId?: string
     teamId?: string
+    tags?: string
+    teamIterationId?: string
   },
 ) {
   const response = await tp.createUserStory<TP.UserStory>(params)
