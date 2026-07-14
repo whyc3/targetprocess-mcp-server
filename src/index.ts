@@ -29,6 +29,9 @@ import { handleGetUserStoryComments } from "./handlers/get_user_story_comments.j
 import { handleGetBugComments } from "./handlers/get_bug_comments.js";
 import { handleCreateBug } from "./handlers/create_bug.js";
 import { handleCreateUserStory } from "./handlers/create_user_story.js";
+import { handleCreateFormattedUserStory } from "./handlers/create_formatted_user_story.js";
+import { handleCreateFormattedFeature } from "./handlers/create_formatted_feature.js";
+import { handleUpdateFeature } from "./handlers/update_feature.js";
 import { handleCreateFeature } from "./handlers/create_feature.js";
 import { handleCreateEpic } from "./handlers/create_epic.js";
 import { handleGetEpicContent } from "./handlers/get_epic_content.js";
@@ -42,6 +45,7 @@ import { handleListMyBugs } from "./handlers/list_my_bugs.js";
 import { handleLogTime } from "./handlers/log_time.js";
 import { handleGetMyTimeLogs } from "./handlers/get_my_time_logs.js";
 import { handleGetFeatureUserStories } from "./handlers/get_feature_user_stories.js";
+import { handleGetFeatureContent } from "./handlers/get_feature_content.js";
 import { handleGetUserStoryBugs } from "./handlers/get_user_story_bugs.js";
 import { handleGetCardCurrentStatus } from "./handlers/get_card_current_status.js";
 import { handleUpdateUserStorySubState } from "./handlers/update_user_story_sub_state.js";
@@ -740,8 +744,16 @@ server.registerTool(
   'create_formatted_user_story',
   {
     title: 'Create a formatted user story',
-    description: `Create a new user story in Targetprocess with a structured, template-driven description.
-      The description is assembled from discrete sections (header, definitions, acceptance criteria, Gherkin scenarios, edge cases, references, notes) and stored as HTML.
+    description: `Create a new user story in Targetprocess with a structured, template-driven description, assembled from discrete sections and stored as HTML.
+      Fill in each field to this quality bar:
+        1) Header — "asA" and "iWant" must be filled in, and "soThat" MUST be a real business outcome, not a restatement of "iWant";
+        2) Definitions — check for jargon, feature flags, module names, and acronyms; if none apply, OMIT the "definitions" field entirely (do not send an empty section);
+        3) Scenarios (write these BEFORE acceptanceCriteria) — at least one Gherkin scenario per distinct behavior; each scenario has exactly ONE "Then" outcome (split it into two scenarios if it needs two); avoid vague verbs like "system validates input" — spell out exactly what "validates" means in the "Then" step;
+        4) Examples Table — if any behavior is described as "supports various formats/roles/states", convert it into a Scenario Outline (one of the "scenarios" entries) plus a matching "examplesTable" with real values; if no parameterized behavior exists, OMIT "examplesTable";
+        5) Edge Cases — MANDATORY (include at least one error-state scenario and one boundary-condition scenario in "edgeCases") if the story touches validation/input handling, permissions/roles, or external data/integrations; otherwise OMIT "edgeCases";
+        6) Acceptance Criteria — every bullet MUST be traceable to a specific scenario or edge case above; if a bullet isn't backed by a scenario, it isn't a criterion yet — put it in "notes" as a flagged gap instead;
+        7) References — put mockup/spec links here, not inline in prose;
+        8) Notes — capture open questions or known constraints here; don't let them hide inside acceptanceCriteria;
       CRITICAL WORKFLOW: Before calling this tool, you MUST follow these steps:
         1) IF the user specified a feature by name (not ID), call "get_feature_user_stories" or "search_tp_cards" to resolve the feature ID;
         2) IF the user specified a release by name (not ID), call "get_current_releases" to resolve the release ID;
@@ -760,7 +772,7 @@ server.registerTool(
         iWant: z.string()
           .describe('Goal — the "I want ..." part'),
         soThat: z.string()
-          .describe('Benefit — the "so that ..." part'),
+          .describe('Benefit — the "so that ..." part. MUST be a real business outcome, not a restatement of "iWant"'),
       })
         .describe('Story header following the As a / I want / so that format'),
       definitions: z.array(z.object({
@@ -768,22 +780,21 @@ server.registerTool(
           .describe('The term, module name, or feature flag being defined'),
         description: z.string()
           .describe('Explanation of the term'),
-      })),
-      acceptanceCriteria: z.array(z.string())
-        .min(1)
-        .describe('Bullet checklist items for quick review sign-off — each string is one criterion'),
+      }))
+        .optional()
+        .describe('Jargon, feature flags, module names, or acronyms that need defining. Omit entirely if none apply — do not send an empty section'),
       scenarios: z.array(z.object({
         name: z.string()
           .describe('Scenario name'),
         steps: z.array(z.string())
           .min(1)
-          .describe('Gherkin steps — each string is a full step line, e.g. "Given I am on the login page"'),
+          .describe('Gherkin steps — each string is a full step line, e.g. "Given I am on the login page". Exactly one "Then" step per scenario; split into another scenario if a second outcome is needed. Avoid vague verbs ("validates") — spell out what happens'),
       }))
         .min(1)
-        .describe('Gherkin scenario blocks, one per behavior branch'),
+        .describe('Gherkin scenario blocks, one per distinct behavior. Write these before acceptanceCriteria'),
       examplesTable: z.string()
         .optional()
-        .describe('Examples table for parameterized or matrix behavior (plain text or Gherkin Examples: table format)'),
+        .describe('Examples: table with real values backing a Scenario Outline for parameterized/matrix behavior (e.g. "supports various formats/roles/states"). Omit if no parameterized behavior exists'),
       edgeCases: z.array(z.object({
         name: z.string()
           .describe('Edge case scenario name'),
@@ -792,13 +803,16 @@ server.registerTool(
           .describe('Gherkin steps for this edge case'),
       }))
         .optional()
-        .describe('Explicit edge case or boundary condition scenarios'),
+        .describe('Explicit edge case or boundary condition scenarios. MANDATORY — at least one error-state and one boundary-condition scenario — if the story touches validation/input handling, permissions/roles, or external data/integrations; omit otherwise'),
+      acceptanceCriteria: z.array(z.string())
+        .min(1)
+        .describe('Bullet checklist items for quick review sign-off — each string is one criterion. Every bullet MUST be traceable to a specific scenario or edge case above'),
       references: z.string()
         .optional()
         .describe('Links to Axure mockups or other external references (not inline in prose)'),
       notes: z.string()
         .optional()
-        .describe('Anything that helps understand the story context but does not fit other sections'),
+        .describe('Open questions or known constraints that do not fit other sections — do not let these hide inside acceptanceCriteria'),
       featureId: z.string()
         .min(5)
         .max(9)
@@ -823,77 +837,121 @@ server.registerTool(
         .describe('Optional Team Iteration (sprint) ID — resolve it via "get_team_iterations" first'),
     },
   },
-  async ({ title, header, definitions, acceptanceCriteria, scenarios, examplesTable, edgeCases, references, notes, featureId, releaseId, projectId, teamId, tags, teamIterationId }) => {
-    const gherkinBlock = (items: { name: string; steps: string[] }[]) =>
-      items.map((s, indx) => `<div><strong>Scenario ${indx + 1} - ${s.name}:</strong></div><div>${s.steps.map(step => `<div>\t${step}</div>`).join('\n')}</div>`).join('<br>')
+  async ({ title, header, definitions, scenarios, examplesTable, edgeCases, acceptanceCriteria, references, notes, featureId, releaseId, projectId, teamId, tags, teamIterationId }) =>
+    handleCreateFormattedUserStory(tp, { title, header, definitions, scenarios, examplesTable, edgeCases, acceptanceCriteria, references, notes, featureId, releaseId, projectId, teamId, tags, teamIterationId })
+)
 
-    const parts: string[] = ['<div>']
-
-    parts.push('<h3>Header</h3>')
-    if (header.storyId) parts.push(`<p><strong>Story ID:</strong> ${header.storyId}</p>`)
-    parts.push(`<p>As a ${header.asA} <br> I want ${header.iWant} <br> so that ${header.soThat}</p>`)
-
-    if (definitions) {
-      parts.push('<h3>Definitions</h3>')
-      parts.push(`<div>`)
-      for (const def of definitions) {
-        parts.push(`<p><strong>${def.term}</strong> — ${def.description}</p>`)
-      }
-      parts.push(`</div>`)
-    }
-
-    parts.push('<h3>Acceptance Criteria</h3>')
-    parts.push('<ol>')
-    for (const criterion of acceptanceCriteria) {
-      parts.push(`<li>${criterion}</li>`)
-    }
-    parts.push('</ol>')
-
-    parts.push('<h3>Scenarios</h3>')
-    parts.push(gherkinBlock(scenarios))
-
-    if (examplesTable) {
-      parts.push('<h3>Examples</h3>')
-      parts.push(`<pre>${examplesTable}</pre>`)
-    }
-
-    if (edgeCases && edgeCases.length > 0) {
-      parts.push('<h3>Edge Cases</h3>')
-      parts.push(gherkinBlock(edgeCases))
-    }
-
-    if (references) {
-      parts.push('<h3>References</h3>')
-      parts.push(`<p>${references}</p>`)
-    }
-
-    if (notes) {
-      parts.push('<h3>Notes</h3>')
-      parts.push(`<p>${notes}</p>`)
-    }
-
-    parts.push('</div>')
-
-    const description = parts.join('\n')
-
-    const userStoryResponse = await tp.createUserStory<TP.UserStory>({ title, description, featureId, releaseId, projectId, teamId, tags, teamIterationId });
-
-    if (!userStoryResponse) {
-      return {
-        content: [{
-          type: 'text',
-          text: `Failed to create formatted user story "${title}"\n JSON: ${JSON.stringify(userStoryResponse, null, 2)}`
-        }]
-      };
-    }
-
-    return {
-      content: [{
-        type: 'text',
-        text: JSON.stringify(userStoryResponse)
-      }],
-    };
-  }
+server.registerTool(
+  'create_formatted_feature',
+  {
+    title: 'Create a formatted feature',
+    description: `Create a new Feature in Targetprocess with a structured, template-driven description (feature-level TDRE), assembled from discrete sections and stored as HTML.
+      Features sit above user stories — this template isn't about writing Gherkin for individual behaviors (that belongs on child stories); it's about tracking cross-cutting constraints, risks, and open questions to a testable/decided state before they get lost across many separate stories.
+      Fill in each field to this quality bar:
+        1) Header — "businessBackground" is a 1-2 sentence value statement: who benefits and why;
+        2) Definitions — cross-cutting terms used across multiple child stories, so they aren't redefined at every story level; if none apply, OMIT "definitions" entirely (do not send an empty section);
+        3) Scope & Boundaries — what this feature explicitly includes/excludes, to stop child stories drifting into adjacent features; omit if genuinely trivial;
+        4) Non-Functional Requirements ("nonFunctionalRequirements") — every NFR category (Security, Compliance, Billing, Operational, etc.) MUST be converted from prose into one row with status "Covered" (link the child story/scenario that proves it in storyOrOwner), "Gap" (no story covers it yet — storyOrOwner names who should follow up), or "Decision needed" (genuinely still open, not testable until resolved). This is the core of the template — never leave an NFR as untested prose;
+        5) Cross-Cutting Scenarios — ONLY for behavior spanning multiple child stories that wouldn't naturally sit in any one of them (e.g. tenant isolation across all stories); do not duplicate per-story Gherkin here; omit if none apply;
+        6) Child Stories ("childStories") — pull this from "get_feature_user_stories" / "get_not_covered_user_stories_in_feature" rather than retyping it; keep it as a live pointer, not a duplicate spec; normally empty when first creating the feature;
+        7) Open Questions / Risks ("openQuestions") — anything raised at feature conception that hasn't been resolved into either a Covered NFR row or a child story; this is the section most likely to get silently dropped — treat it as the running "not done yet" list until each line is promoted to a Covered NFR row;
+        8) References — mockup/spec links here, not inline in prose;
+        9) Notes — anything else that helps understand context but doesn't fit other sections;
+      CRITICAL WORKFLOW: Before calling this tool, you MUST follow these steps:
+        1) IF the user specified an epic by name (not ID), resolve the epic ID first;
+        2) IF the user specified a release by name (not ID), call "get_current_releases" to resolve the release ID;
+        3) IF the user specified a team by name (not ID), call "get_teams" to find the matching team and use its ID as teamId;
+        4) IF the user specified a project by name (not ID), call "get_projects" to find the matching project and use its ID as projectId;
+        5) IF this feature already has child stories, call "get_feature_user_stories" and "get_not_covered_user_stories_in_feature" to build "childStories" instead of guessing coverage;`,
+    inputSchema: {
+      title: z.string()
+        .describe('Feature title'),
+      header: z.object({
+        featureId: z.string()
+          .optional()
+          .describe('Feature ID if already known (e.g. TP-145636), omit for new features'),
+        businessBackground: z.string()
+          .describe('1-2 sentence value statement — who benefits and why'),
+      })
+        .describe('Feature header'),
+      definitions: z.array(z.object({
+        term: z.string()
+          .describe('The term, module name, or feature flag being defined'),
+        description: z.string()
+          .describe('Explanation of the term'),
+      }))
+        .optional()
+        .describe('Cross-cutting terms used across multiple child stories, avoiding re-defining the same term at every story level. Omit entirely if none apply'),
+      scope: z.object({
+        includes: z.array(z.string())
+          .optional()
+          .describe('What this feature explicitly includes'),
+        excludes: z.array(z.string())
+          .optional()
+          .describe('What this feature explicitly excludes — prevents child stories drifting into adjacent features'),
+      })
+        .optional()
+        .describe('Scope & Boundaries. Omit if genuinely trivial'),
+      nonFunctionalRequirements: z.array(z.object({
+        area: z.string()
+          .describe('NFR category, e.g. Security, Compliance, Billing, Operational'),
+        requirement: z.string()
+          .describe('The requirement, stated so it can be judged Covered/Gap/Decision needed'),
+        status: z.enum(["Covered", "Gap", "Decision needed"])
+          .describe('Covered = a child story/scenario proves it; Gap = no story covers it yet; Decision needed = still open — not testable until resolved'),
+        storyOrOwner: z.string()
+          .describe('If Covered, the child story ID/scenario that proves it; if Gap or Decision needed, who owns the follow-up (e.g. "Needs legal/BA follow-up")'),
+      }))
+        .min(1)
+        .describe('Every NFR category converted from prose into a testable/decided row — the core of this template. Do not leave requirements as untested prose'),
+      crossCuttingScenarios: z.array(z.object({
+        name: z.string()
+          .describe('Scenario name'),
+        steps: z.array(z.string())
+          .min(1)
+          .describe('Gherkin steps — each string is a full step line'),
+      }))
+        .optional()
+        .describe('Only for behavior spanning multiple child stories that would not naturally sit in any single one of them. Do not duplicate per-story Gherkin here; omit if none apply'),
+      childStories: z.array(z.object({
+        id: z.string()
+          .describe('Child story ID (e.g. 145789)'),
+        name: z.string()
+          .describe('Child story title'),
+        covered: z.boolean()
+          .describe('Whether this story is covered by tests'),
+      }))
+        .optional()
+        .describe('Pull this from "get_feature_user_stories" / "get_not_covered_user_stories_in_feature" rather than retyping it — a live pointer, not a duplicate spec. Normally empty when first creating the feature'),
+      openQuestions: z.array(z.string())
+        .optional()
+        .describe('Anything raised at feature conception not yet resolved into a Covered NFR row or a child story — the running "not done yet" list'),
+      references: z.string()
+        .optional()
+        .describe('Links to specs/mockups (not inline in prose)'),
+      notes: z.string()
+        .optional()
+        .describe('Anything else that helps understand context but does not fit other sections'),
+      epicId: z.string()
+        .min(5)
+        .max(9)
+        .optional()
+        .describe('Optional Epic ID to link this feature to (e.g. 145636)'),
+      releaseId: z.string()
+        .min(5)
+        .max(9)
+        .optional()
+        .describe('Optional Release ID to link this feature to (e.g. 145200)'),
+      projectId: z.string()
+        .optional()
+        .describe('Optional Project ID — defaults to TP_PROJECT_ID from config'),
+      teamId: z.string()
+        .optional()
+        .describe('Optional Team ID — defaults to TP_TEAM_ID from config'),
+    },
+  },
+  async ({ title, header, definitions, scope, nonFunctionalRequirements, crossCuttingScenarios, childStories, openQuestions, references, notes, epicId, releaseId, projectId, teamId }) =>
+    handleCreateFormattedFeature(tp, { title, header, definitions, scope, nonFunctionalRequirements, crossCuttingScenarios, childStories, openQuestions, references, notes, epicId, releaseId, projectId, teamId })
 )
 
 server.registerTool(
@@ -927,6 +985,60 @@ server.registerTool(
   },
   async ({ title, description, epicId, releaseId, projectId, teamId }) =>
     handleCreateFeature(tp, { title, description, epicId, releaseId, projectId, teamId })
+)
+
+server.registerTool(
+  'update_feature',
+  {
+    title: 'Update a feature card',
+    description: `Update a feature card with data provided from user input.
+      NOTE: pass only the fields that user wants to update.
+      CRITICAL WORKFLOW: Before calling this tool, you MUST follow these steps:
+        1) IF the user specified an epic by name (not ID), resolve the epic ID first;
+        2) IF the user specified a release by name (not ID), call "get_current_releases" to resolve the release ID;
+        3) IF the user specified a team by name (not ID), call "get_teams" to find the matching team and use its ID as teamId;
+        4) IF the user specified a project by name (not ID), call "get_projects" to find the matching project and use its ID as projectId;
+        5) IF the user specified a sprint/iteration by name, call "get_team_iterations" to find the matching iteration and use its ID as teamIterationId;`,
+    inputSchema: {
+      id: z.string()
+        .min(5)
+        .max(9)
+        .describe('Feature card ID (e.g. 145636)'),
+      title: z.string()
+        .optional()
+        .describe('Updated feature title'),
+      description: z.string()
+        .optional()
+        .describe('Updated feature description (format as HTML)'),
+      epicId: z.string()
+        .min(5)
+        .max(9)
+        .optional()
+        .describe('Optional Epic ID — moves this feature to the specified epic'),
+      releaseId: z.string()
+        .min(5)
+        .max(9)
+        .optional()
+        .describe('Optional Release ID to link this feature to'),
+      projectId: z.string()
+        .optional()
+        .describe('Optional Project ID — if user gave a project name, resolve it via "get_projects" first'),
+      teamId: z.string()
+        .optional()
+        .describe('Optional Team ID — if user gave a team name, resolve it via "get_teams" first'),
+      entityStateId: z.string()
+        .optional()
+        .describe('Optional Entity State ID — ask the user for the exact ID if given a state name; no dedicated feature-workflow lookup tool exists yet'),
+      tags: z.string()
+        .optional()
+        .describe('Optional comma-separated tags to apply, e.g. "regression, mobile"'),
+      teamIterationId: z.string()
+        .optional()
+        .describe('Optional Team Iteration (sprint) ID — resolve it via "get_team_iterations" first'),
+    },
+  },
+  async ({ id, title, description, epicId, releaseId, projectId, teamId, entityStateId, tags, teamIterationId }) =>
+    handleUpdateFeature(tp, { id, title, description, epicId, releaseId, projectId, teamId, entityStateId, tags, teamIterationId })
 )
 
 server.registerTool(
@@ -1177,6 +1289,21 @@ server.registerTool(
     },
   },
   async ({ id }) => handleGetFeatureUserStories(tp, id)
+);
+
+server.registerTool(
+  'get_feature_content',
+  {
+    title: 'Get TP feature content',
+    description: 'Get a Targetprocess Feature by ID, including description, state, and progress',
+    inputSchema: {
+      id: z.string()
+        .min(5)
+        .max(9)
+        .describe('TP feature ID (e.g. 145636)'),
+    },
+  },
+  async ({ id }) => handleGetFeatureContent(tp, id)
 );
 
 server.registerTool(
@@ -1852,14 +1979,14 @@ server.registerTool('update_test_case_step_by_id', {
 }, async ({ id, description, result }) => handleUpdateTestCaseStepById(tp, { id, description, result }));
 
 server.registerTool('delete_test_case_step_by_id', {
-    title: 'Delete test case step by ID',
-    description: 'Delete a Targetprocess Test Step by its ID.',
-    inputSchema: {
-        id: z.string()
-            .min(5)
-            .max(9)
-            .describe('Test step ID (e.g. 145789)'),
-    },
+  title: 'Delete test case step by ID',
+  description: 'Delete a Targetprocess Test Step by its ID.',
+  inputSchema: {
+    id: z.string()
+      .min(5)
+      .max(9)
+      .describe('Test step ID (e.g. 145789)'),
+  },
 }, async ({ id }) => handleDeleteTestCaseStepById(tp, id));
 
 async function main() {

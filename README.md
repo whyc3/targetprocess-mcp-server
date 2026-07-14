@@ -42,6 +42,7 @@ Releases
 - `get_release_open_user_stories` — Get only active/open user stories for a release (name, withDescription, optional results)
 
 Features
+- `get_feature_content` — Get a Targetprocess Feature by ID, including description, state, and progress (id)
 - `get_feature_user_stories` — Get all user stories for a feature by its ID (id)
 - `get_not_covered_user_stories_in_feature` — Get user stories in a feature not yet covered by tests, includes `covered` field based on "Test Automation" custom field (id)
 
@@ -91,7 +92,7 @@ Cards — Write
 - `create_user_story` — Create a new user story (title, optional description, optional featureId, optional releaseId, optional projectId, optional teamId)  
 > [!NOTE]  
 > `projectId` and `teamId` are optional — fall back to `TP_PROJECT_ID` and `TP_TEAM_ID` from config  
-- `create_formatted_user_story` — Create a new user story with a structured template description (title, header object with asA/iWant/soThat, acceptanceCriteria array, scenarios array with Gherkin steps, optional definitions, examplesTable, edgeCases, references, notes, optional featureId, releaseId, projectId, teamId)  
+- `create_formatted_user_story` — Create a new user story with a structured template description in Header → Definitions → Scenarios → Examples Table → Edge Cases → Acceptance Criteria → References → Notes order (title, header object with asA/iWant/soThat, scenarios array with Gherkin steps, acceptanceCriteria array, optional definitions, examplesTable, edgeCases, references, notes, optional featureId, releaseId, projectId, teamId)  
 > [!NOTE]  
 > `projectId` and `teamId` are optional — fall back to `TP_PROJECT_ID` and `TP_TEAM_ID` from config  
 - `format_existing_user_story` — Re-format the description of an existing user story using the structured template (id, header object with asA/iWant/soThat, acceptanceCriteria array, scenarios array with Gherkin steps, optional title, definitions, examplesTable, edgeCases, references, notes)
@@ -102,6 +103,8 @@ Cards — Write
 - `create_feature` — Create a new feature (title, optional description, optional epicId, optional releaseId, optional projectId, optional teamId)  
 > [!NOTE]  
 > `projectId` and `teamId` are optional — fall back to `TP_PROJECT_ID` and `TP_TEAM_ID` from config  
+- `create_formatted_feature` — Create a new feature with a feature-level TDRE template in Header → Definitions → Scope & Boundaries → Non-Functional Requirements → Cross-Cutting Scenarios → Child Stories → Open Questions/Risks → References → Notes order (title, header object with businessBackground, nonFunctionalRequirements array with area/requirement/status/storyOrOwner, optional definitions, scope, crossCuttingScenarios, childStories, openQuestions, references, notes, optional epicId, releaseId, projectId, teamId)  
+- `update_feature` — Update a feature card with data provided from user input; pass only the fields to change (id, optional title, optional description, optional epicId, optional releaseId, optional projectId, optional teamId, optional entityStateId, optional tags, optional teamIterationId)  
 - `create_test_plan` — Create a test plan linked to a UserStory, Bug, or Feature (title, resourceId, optional resourceType, optional description/startDate/endDate)  
 > [!NOTE]  
 > requires `TP_PROJECT_ID`, 

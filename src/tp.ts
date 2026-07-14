@@ -453,6 +453,36 @@ export class TpClient {
     }, feature) as T
   }
 
+  async updateFeature<T>({
+    id,
+    title,
+    description,
+    epicId,
+    releaseId,
+    projectId,
+    teamId,
+    entityStateId,
+    tags,
+    teamIterationId
+  }: { id: string, title?: string, description?: string, epicId?: string, releaseId?: string, projectId?: string, teamId?: string, entityStateId?: string, tags?: string, teamIterationId?: string }): Promise<T> {
+    const feature: Record<string, any> = { "Id": id }
+
+    if (title) feature["Name"] = title
+    if (description) feature["Description"] = description
+    if (epicId) feature["Epic"] = { "Id": epicId }
+    if (releaseId) feature["Release"] = { "Id": releaseId }
+    if (projectId) feature["Project"] = { "Id": projectId }
+    if (teamId) feature["assignedTeams"] = [{ "team": { "id": teamId } }]
+    if (entityStateId) feature["EntityState"] = { "Id": entityStateId }
+    if (tags) feature["Tags"] = tags
+    if (teamIterationId) feature["TeamIteration"] = { "Id": teamIterationId }
+
+    return this.post<any, T>({
+      pathParam: ["Features"],
+      param: { "format": "json" },
+    }, feature) as T
+  }
+
   async createBugBasedOnUserStory<T>(title: string, userStoryId: string, bugContent: string): Promise<T> {
     const bug = {
       "Name": title,
