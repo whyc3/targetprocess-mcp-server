@@ -918,6 +918,20 @@ export class TpClient {
     })
   }
 
+  async deleteCard<T>({ id, type }: { id: string, type: "Bug" | "UserStory" | "Feature" | "Epic" }): Promise<TpResult<T>> {
+    const pathSegment: Record<typeof type, string> = {
+      "Bug": "bugs",
+      "UserStory": "userStories",
+      "Feature": "features",
+      "Epic": "Epics",
+    }
+
+    return this.del<T>({
+      pathParam: [pathSegment[type], id],
+      param: { "format": "json" },
+    })
+  }
+
   async getProjects<T>(): Promise<T> {
     return this.get<T>({
       pathParam: ["Projects"],

@@ -48,6 +48,7 @@ import { handleUpdateUserStorySubState } from "./handlers/update_user_story_sub_
 import { handleGetCardRelations } from "./handlers/get_card_relations.js";
 import { handleCreateCardRelation } from "./handlers/create_card_relation.js";
 import { handleDeleteCardRelation } from "./handlers/delete_card_relation.js";
+import { handleDeleteCard } from "./handlers/delete_card.js";
 import { handleGetTestPlanById } from "./handlers/get_test_plan_by_id.js";
 import { handleGetTestPlanTestCasesById } from "./handlers/get_test_plan_test_cases_by_id.js";
 import { handleGetTestPlanTestCasesWithStepsById } from "./handlers/get_test_plan_test_cases_with_steps_by_id.js";
@@ -1578,6 +1579,22 @@ server.registerTool(
     },
   },
   async ({ relationId }) => handleDeleteCardRelation(tp, relationId)
+)
+
+server.registerTool(
+  'delete_card',
+  {
+    title: 'Delete a card (Bug, User Story, Feature, or Epic)',
+    description: `Delete (remove) a Targetprocess card by its ID. Works on Bugs, User Stories, Features, and Epics.
+      IF the type is uncertain, resolve it first via "search_tp_cards" or by fetching the card.`,
+    inputSchema: {
+      id: z.string()
+        .describe('The card ID to delete (e.g. 148980)'),
+      type: z.enum(["Bug", "UserStory", "Feature", "Epic"])
+        .describe('The entity type of the card being deleted'),
+    },
+  },
+  async ({ id, type }) => handleDeleteCard(tp, { id, type })
 )
 
 server.registerTool(
