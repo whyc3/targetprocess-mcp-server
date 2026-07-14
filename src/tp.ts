@@ -650,6 +650,18 @@ export class TpClient {
     return response
   }
 
+  async getFeatureComments<T>(featureId: string, results: number = 25): Promise<T> {
+    const response = await this.get<T>({
+      pathParam: ["Features", featureId, "Comments"],
+      param: {
+        "format": "json",
+        "take": results,
+      }
+    }) as T
+
+    return response
+  }
+
   async searchContainsNameText<T>({ text, entityType }: { text: string, entityType: "Generals" | "UserStories" | "Bugs" | "Features" }): Promise<T> {
     return this.get<T>({
       pathParam: [entityType],
