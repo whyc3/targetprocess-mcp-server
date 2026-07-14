@@ -43,6 +43,7 @@ Releases
 
 Features
 - `get_feature_content` — Get a Targetprocess Feature by ID, including description, state, and progress (id)
+- `get_feature_comments` — Get comments for a feature by its ID (id, optional results)
 - `get_feature_user_stories` — Get all user stories for a feature by its ID (id)
 - `get_not_covered_user_stories_in_feature` — Get user stories in a feature not yet covered by tests, includes `covered` field based on "Test Automation" custom field (id)
 

@@ -46,6 +46,7 @@ import { handleLogTime } from "./handlers/log_time.js";
 import { handleGetMyTimeLogs } from "./handlers/get_my_time_logs.js";
 import { handleGetFeatureUserStories } from "./handlers/get_feature_user_stories.js";
 import { handleGetFeatureContent } from "./handlers/get_feature_content.js";
+import { handleGetFeatureComments } from "./handlers/get_feature_comments.js";
 import { handleGetUserStoryBugs } from "./handlers/get_user_story_bugs.js";
 import { handleGetCardCurrentStatus } from "./handlers/get_card_current_status.js";
 import { handleUpdateUserStorySubState } from "./handlers/update_user_story_sub_state.js";
@@ -1305,6 +1306,78 @@ server.registerTool(
   },
   async ({ id }) => handleGetFeatureContent(tp, id)
 );
+
+server.registerTool(
+  'get_feature_comments',
+  {
+    title: 'Get feature comments',
+    description: 'Get comments for a TP feature by its ID',
+    inputSchema: {
+      id: z.string()
+        .min(5)
+        .max(9)
+        .describe('TP feature ID (e.g. 145636)'),
+      results: z.number()
+        .default(25)
+        .optional()
+        .describe('Number of comments to return, default is 25'),
+    },
+  },
+  async ({ id, results }) => handleGetFeatureComments(tp, id, results)
+);
+
+server.registerTool(
+  'get_assignment_roles',
+  {
+    title: 'Get assignment roles',
+    description: 'Returns all available assignment roles (e.g. Business Analyst, Developer) with their IDs.',
+    inputSchema: {},
+  },
+  async () => {
+    const result = await tp.getAssignmentRoles<{ items: { id: number; name: string }[] }>()
+    return {
+      content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
+    }
+  }
+)
+
+server.registerTool(
+  'assign_role',
+  {
+    title: 'Assign a role to a user on a card',
+    description: 'Assigns a user to a specific role on a single TP card (User Story, Bug, etc.).',
+    inputSchema: {
+      cardId: z.string().describe('TP card ID (e.g. 149350)'),
+      userId: z.string().describe('TP user ID'),
+      roleId: z.string().describe('TP role ID — use get_assignment_roles to find the right ID'),
+    },
+  },
+  async ({ cardId, userId, roleId }) => {
+    const result = await tp.assignRole(cardId, userId, roleId)
+    return {
+      content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
+    }
+  }
+)
+
+server.registerTool(
+  'assign_role_to_feature',
+  {
+    title: 'Assign a role to a user on all user stories in a feature',
+    description: 'Assigns a user to a specific role on every user story within a given feature.',
+    inputSchema: {
+      featureId: z.string().describe('TP feature ID (e.g. 149341)'),
+      userId: z.string().describe('TP user ID'),
+      roleId: z.string().describe('TP role ID — use get_assignment_roles to find the right ID'),
+    },
+  },
+  async ({ featureId, userId, roleId }) => {
+    const result = await tp.assignRoleToAllStoriesInFeature(featureId, userId, roleId)
+    return {
+      content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
+    }
+  }
+)
 
 server.registerTool(
   'get_user_story_bugs',
