@@ -22,7 +22,9 @@ export interface BugInputSchema {
   origin?: string,
   projectId?: string,
   teamId?: string,
-  entityStateId?: string
+  entityStateId?: string,
+  tags?: string,
+  teamIterationId?: string
 }
 
 export interface UserStoryInputSchema {
@@ -30,7 +32,9 @@ export interface UserStoryInputSchema {
   description?: string,
   projectId?: string,
   teamId?: string,
-  entityStateId?: string
+  entityStateId?: string,
+  tags?: string,
+  teamIterationId?: string
 }
 
 // ── TP types ───────────────────────────────────────────────────────────────────────
@@ -375,6 +379,17 @@ export interface Team {
   IsActive: boolean
   Abbreviation: string
   CustomFields: any[]
+}
+
+export interface TeamIteration {
+  Id: number
+  Name: string
+  StartDate: string
+  EndDate: string
+  Team: {
+    Id: number
+    Name: string
+  }
 }
 
 export interface ResponsibleTeam {
@@ -847,6 +862,25 @@ export interface TimeLog {
     Name: string
   }
   User: Owner
+}
+
+export interface RoleAssignment {
+  ResourceType: string
+  Id: number
+  Assignable: Assignable
+  GeneralUser: {
+    ResourceType: string
+    Id: number
+    FirstName: string
+    LastName: string
+    Login: string
+    FullName: string
+  }
+  Role: {
+    ResourceType: string
+    Id: number
+    Name: string
+  }
 }
 
 export interface Context {

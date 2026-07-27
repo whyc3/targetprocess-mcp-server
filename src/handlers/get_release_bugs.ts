@@ -5,8 +5,9 @@ export async function handleGetReleaseBugs(
   tp: TpClient,
   name: string,
   results?: number,
+  withDescription?: boolean
 ) {
-  const release = await tp.getReleaseBugs<TP.TpResponse<TP.Bug>>({ name, results })
+  const release = await tp.getReleaseBugs<TP.TpResponse<TP.Bug>>({ name, results, withDescription })
 
   if (!release) {
     return {

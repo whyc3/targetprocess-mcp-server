@@ -9,9 +9,10 @@ import {
   Bug,
   Task,
   LoggedUser,
-  TestCase,
-  TestPlan,
   SearchEntitiesParams,
+  RoleAssignment,
+  TestPlan,
+  TestCase,
 } from "./types.js";
 import { config } from "./config.js";
 
@@ -49,6 +50,12 @@ export class TpClient {
     return _url + "/?" + _urlParams.join("&")
   }
 
+  // Strips the access_token value out of a URL before it's logged, so the
+  // live TP credential never ends up in stderr/log files.
+  private redact(url: string): string {
+    return url.replace(this.token, "***")
+  }
+
   // @ts-ignore
   private async getAll<T>(params: TpClientParameters): Promise<T[]> {
     return (await this.getAllOrNull<T>(params)) || []
@@ -81,6 +88,7 @@ export class TpClient {
   private async get<T>(params: TpClientParameters): Promise<T | null> {
     params.param["access_token"] = this.token
     let _url = this.params(params)
+    console.error(JSON.stringify({ "TP_GET_URL": _url }))
     try {
       const response = await fetch(_url, {
         method: "GET",
@@ -93,7 +101,7 @@ export class TpClient {
       return (await response.json()) as T
     } catch (error) {
       console.error("Error making TP request:", error);
-      console.error("Request URL:", _url);
+      console.error("Request URL:", this.redact(_url));
       return null;
     }
   }
@@ -101,7 +109,7 @@ export class TpClient {
   private async post<T, U>(params: TpClientParameters, data: T): Promise<U | null> {
     params.param["access_token"] = this.token
     let _url = this.params(params)
-    console.error(JSON.stringify({ "TP_POST_URL": _url }))
+    console.error(JSON.stringify({ "TP_POST_URL": this.redact(_url) }))
     console.error(JSON.stringify({ "TP_POST_BODY": data }))
     try {
       const response = await fetch(_url, {
@@ -124,7 +132,7 @@ export class TpClient {
   private async postRaw<T, U>(params: TpClientParameters, data: T): Promise<TpResult<U>> {
     params.param["access_token"] = this.token
     let _url = this.params(params)
-    console.error(JSON.stringify({ "TP_POST_URL": _url }))
+    console.error(JSON.stringify({ "TP_POST_URL": this.redact(_url) }))
     console.error(JSON.stringify({ "TP_POST_BODY": data }))
     try {
       const response = await fetch(_url, {
@@ -149,7 +157,7 @@ export class TpClient {
   private async del<U>(params: TpClientParameters): Promise<TpResult<U>> {
     params.param["access_token"] = this.token
     let _url = this.params(params)
-    console.error(JSON.stringify({ "TP_DELETE_URL": _url }))
+    console.error(JSON.stringify({ "TP_DELETE_URL": this.redact(_url) }))
     try {
       const response = await fetch(_url, {
         method: "DELETE",
@@ -309,8 +317,11 @@ export class TpClient {
     description,
     projectId,
     teamId,
-    entityStateId
-  }: { id: string, title?: string, description?: string, projectId?: string, teamId?: string, teamAssignmentId?: string, entityStateId?: string }): Promise<T> {
+    entityStateId,
+    featureId,
+    tags,
+    teamIterationId
+  }: { id: string, title?: string, description?: string, projectId?: string, teamId?: string, teamAssignmentId?: string, entityStateId?: string, featureId?: string, tags?: string, teamIterationId?: string }): Promise<T> {
     const userStory: Record<string, any> = { "Id": id }
 
     if (title) userStory["Name"] = title
@@ -318,6 +329,9 @@ export class TpClient {
     if (projectId) userStory["Project"] = { "Id": projectId }
     if (teamId) userStory["assignedTeams"] = [{ "team": { "id": teamId } }]
     if (entityStateId) userStory["EntityState"] = { "Id": entityStateId }
+    if (featureId) userStory["Feature"] = { "Id": featureId }
+    if (tags) userStory["Tags"] = tags
+    if (teamIterationId) userStory["TeamIteration"] = { "Id": teamIterationId }
 
     return this.post<any, T>({
       pathParam: ["UserStories"],
@@ -325,7 +339,7 @@ export class TpClient {
     }, userStory) as T
   }
 
-  async updateBug<T>({ id, title, bugContent, origin, projectId, teamId, entityStateId }: { id: string, title?: string, bugContent?: string, origin?: string, projectId?: string, teamId?: string, entityStateId?: string }): Promise<T> {
+  async updateBug<T>({ id, title, bugContent, origin, projectId, teamId, entityStateId, tags, teamIterationId }: { id: string, title?: string, bugContent?: string, origin?: string, projectId?: string, teamId?: string, entityStateId?: string, tags?: string, teamIterationId?: string }): Promise<T> {
     const bug: Record<string, any> = { "Id": id }
 
     if (title) bug["Name"] = title
@@ -342,6 +356,8 @@ export class TpClient {
       }
     }]
     if (entityStateId) bug["entityState"] = { "id": entityStateId }
+    if (tags) bug["Tags"] = tags
+    if (teamIterationId) bug["TeamIteration"] = { "Id": teamIterationId }
 
     return this.post<any, T>({
       pathParam: ["bugs"],
@@ -349,7 +365,7 @@ export class TpClient {
     }, bug) as T
   }
 
-  async createBugOnly<T>({ title, bugContent, origin = "Manual QA", projectId, teamId, entityStateId }: BugInputSchema): Promise<T> {
+  async createBugOnly<T>({ title, bugContent, origin = "Manual QA", projectId, teamId, entityStateId, tags, teamIterationId }: BugInputSchema): Promise<T> {
     const bug: Record<string, any> = {
       "Name": title,
       "Project": {
@@ -369,6 +385,8 @@ export class TpClient {
     }
 
     if (entityStateId) bug["EntityState"] = { "Id": entityStateId }
+    if (tags) bug["Tags"] = tags
+    if (teamIterationId) bug["TeamIteration"] = { "Id": teamIterationId }
 
     return this.post<any, T>({
       pathParam: ["bugs"],
@@ -376,7 +394,7 @@ export class TpClient {
     }, bug) as T
   }
 
-  async createUserStory<T>({ title, description, featureId, releaseId, projectId, teamId }: { title: string, description?: string, featureId?: string, releaseId?: string, projectId?: string, teamId?: string }): Promise<T> {
+  async createUserStory<T>({ title, description, featureId, releaseId, projectId, teamId, tags, teamIterationId }: { title: string, description?: string, featureId?: string, releaseId?: string, projectId?: string, teamId?: string, tags?: string, teamIterationId?: string }): Promise<T> {
     const userStory: Record<string, any> = {
       "Name": title,
       "Project": { "Id": projectId || config.tp.projectId },
@@ -386,11 +404,24 @@ export class TpClient {
     if (description) userStory["Description"] = description
     if (featureId) userStory["Feature"] = { "Id": featureId }
     if (releaseId) userStory["Release"] = { "Id": releaseId }
+    if (tags) userStory["Tags"] = tags
+    if (teamIterationId) userStory["TeamIteration"] = { "Id": teamIterationId }
 
     return this.post<any, T>({
       pathParam: ["UserStories"],
       param: { "format": "json" },
     }, userStory) as T
+  }
+
+  async getTeamIterations<T>({ teamId }: { teamId?: string } = {}): Promise<T> {
+    return this.get<T>({
+      pathParam: ["TeamIterations"],
+      param: {
+        "format": "json",
+        ...(teamId ? { "where": `Team.Id eq ${teamId}` } : {}),
+        "include": "[Id,Name,StartDate,EndDate,Team[Id,Name]]",
+      },
+    }) as T
   }
 
 
@@ -458,6 +489,36 @@ export class TpClient {
     }, feature) as T
   }
 
+  async updateFeature<T>({
+    id,
+    title,
+    description,
+    epicId,
+    releaseId,
+    projectId,
+    teamId,
+    entityStateId,
+    tags,
+    teamIterationId
+  }: { id: string, title?: string, description?: string, epicId?: string, releaseId?: string, projectId?: string, teamId?: string, entityStateId?: string, tags?: string, teamIterationId?: string }): Promise<T> {
+    const feature: Record<string, any> = { "Id": id }
+
+    if (title) feature["Name"] = title
+    if (description) feature["Description"] = description
+    if (epicId) feature["Epic"] = { "Id": epicId }
+    if (releaseId) feature["Release"] = { "Id": releaseId }
+    if (projectId) feature["Project"] = { "Id": projectId }
+    if (teamId) feature["assignedTeams"] = [{ "team": { "id": teamId } }]
+    if (entityStateId) feature["EntityState"] = { "Id": entityStateId }
+    if (tags) feature["Tags"] = tags
+    if (teamIterationId) feature["TeamIteration"] = { "Id": teamIterationId }
+
+    return this.post<any, T>({
+      pathParam: ["Features"],
+      param: { "format": "json" },
+    }, feature) as T
+  }
+
   async createBugBasedOnUserStory<T>(title: string, userStoryId: string, bugContent: string): Promise<T> {
     const bug = {
       "Name": title,
@@ -495,18 +556,6 @@ export class TpClient {
         "Id": testPlanId
       }],
     }
-
-    return this.post<any, T>({
-      pathParam: ["testCases"],
-      param: { "format": "json" },
-    }, testCase) as T
-  }
-
-  async updateTestCase<T>({ id, name, description }: { id: string, name?: string, description?: string }): Promise<T> {
-    const testCase: Record<string, any> = { "Id": id }
-
-    if (name !== undefined) testCase["Name"] = name
-    if (description !== undefined) testCase["Description"] = description
 
     return this.post<any, T>({
       pathParam: ["testCases"],
@@ -621,32 +670,6 @@ export class TpClient {
     }, testStepData) as T
   }
 
-  async getTestStep<T>(testStepId: string): Promise<T> {
-    return this.get<T>({
-      pathParam: ["testSteps", testStepId],
-      param: { "format": "json" },
-    }) as T
-  }
-
-  async updateTestStep<T>({ id, description, result }: { id: string, description?: string, result?: string }): Promise<T> {
-    const testStep: Record<string, any> = { "Id": id }
-
-    if (description !== undefined) testStep["Description"] = description
-    if (result !== undefined) testStep["Result"] = result
-
-    return this.post<any, T>({
-      pathParam: ["testSteps"],
-      param: { "format": "json" },
-    }, testStep) as T
-  }
-
-  async deleteTestStep<T>(testStepId: string): Promise<TpResult<T>> {
-    return this.del<T>({
-      pathParam: ["testSteps", testStepId],
-      param: { "format": "json" },
-    })
-  }
-
   async getBugComments<T>(bugId: string, results: number = 25): Promise<T> {
     const response = await this.get<T>({
       pathParam: ["Bugs", bugId, "Comments"],
@@ -662,6 +685,18 @@ export class TpClient {
   async getUserStoryComments<T>(userStoryId: string, results: number = 25): Promise<T> {
     const response = await this.get<T>({
       pathParam: ["UserStories", userStoryId, "Comments"],
+      param: {
+        "format": "json",
+        "take": results,
+      }
+    }) as T
+
+    return response
+  }
+
+  async getFeatureComments<T>(featureId: string, results: number = 25): Promise<T> {
+    const response = await this.get<T>({
+      pathParam: ["Features", featureId, "Comments"],
       param: {
         "format": "json",
         "take": results,
@@ -714,7 +749,7 @@ export class TpClient {
       entityType,
       field: "Description",
       keyword: text,
-      take: 50,
+      take: 100,
       skip: 0,
     })
   }
@@ -729,7 +764,7 @@ export class TpClient {
     }) as T
   }
 
-  async getReleaseUserStories<T>({ name, results = 50, withDescription = false }: { name: string, results?: number, withDescription?: boolean }): Promise<T> {
+  async getReleaseUserStories<T>({ name, results = 100, withDescription = false }: { name: string, results?: number, withDescription?: boolean }): Promise<T> {
     const includeFilter = withDescription ? "[Name, Description, Id]" : "[Name, Id]"
     return this.get<T>({
       pathParam: ["UserStories"],
@@ -742,7 +777,7 @@ export class TpClient {
     }) as T
   }
 
-  async getReleaseOpenUserStories<T>({ name, results = 100, withDescription = false }: { name: string, results?: number, withDescription?: boolean }): Promise<T> {
+  async getReleaseOpenUserStories<T>({ name, results = 300, withDescription = false }: { name: string, results?: number, withDescription?: boolean }): Promise<T> {
     const includeFilter = withDescription ? "[Name, Description, Id]" : "[Name, Id]"
     return this.get<T>({
       pathParam: ["UserStories"],
@@ -755,7 +790,7 @@ export class TpClient {
     }) as T
   }
 
-  async getReleaseOpenBugs<T>({ name, results = 200, withDescription = false }: { name: string, results?: number, withDescription?: boolean }): Promise<T> {
+  async getReleaseOpenBugs<T>({ name, results = 300, withDescription = false }: { name: string, results?: number, withDescription?: boolean }): Promise<T> {
     const includeFilter = withDescription ? "[Name, Description, Id]" : "[Name, Id]"
     return this.get<T>({
       pathParam: ["Bugs"],
@@ -768,8 +803,8 @@ export class TpClient {
     }) as T
   }
 
-  async getReleaseBugs<T>({ name, results = 100, withDescription = false }: { name: string, results?: number, withDescription?: boolean }): Promise<T> {
-    const includeFilter = withDescription ? "[Name, Description, Id]" : "[Name, Id]"
+  async getReleaseBugs<T>({ name, results = 500, withDescription = false }: { name: string, results?: number, withDescription?: boolean }): Promise<T> {
+    const includeFilter = withDescription ? "[Name, Description, Id, Creator, Owner, Team]" : "[Name, Id]"
     return this.get<T>({
       pathParam: ["Bugs"],
       param: {
@@ -781,7 +816,7 @@ export class TpClient {
     }) as T
   }
 
-  async getReleaseFeatures<T>({ name, results = 50, withDescription = false }: { name: string, results?: number, withDescription?: boolean }): Promise<T> {
+  async getReleaseFeatures<T>({ name, results = 100, withDescription = false }: { name: string, results?: number, withDescription?: boolean }): Promise<T> {
     const includeFilter = withDescription ? "[Name, Description, Id]" : "[Name, Id]"
     return this.get<T>({
       pathParam: ["Features"],
@@ -852,15 +887,11 @@ export class TpClient {
     }) as T
   }
 
-  async getDirectTestPlanTestCases<T>(testPlanId: string): Promise<T> {
-    const testPlan = await this.getTestPlan<TestPlan>(testPlanId)
-    const testPlanNode = this.toTestPlanNode(testPlan, testPlanId)
-    if (!testPlanNode) return null as T
-
-    const testCases = await this.getDirectTestPlanTestCaseItems(testPlanNode)
-
-    if (!testCases) return null as T
-    return { Next: "", Items: testCases } as T
+  async getTestPlan<T>(testPlanId: string): Promise<T> {
+    return this.get<T>({
+      pathParam: ["testPlans", testPlanId],
+      param: { "format": "json" },
+    }) as T
   }
 
   async getTestPlanTestCases<T>(testPlanId: string): Promise<T> {
@@ -897,13 +928,6 @@ export class TpClient {
     }
 
     return { Next: "", Items: testCases } as T
-  }
-
-  async getTestPlan<T>(testPlanId: string): Promise<T> {
-    return this.get<T>({
-      pathParam: ["testPlans", testPlanId],
-      param: { "format": "json" },
-    }) as T
   }
 
   private async getDirectTestPlanTestCaseItems(testPlan: TestPlanNode): Promise<TestCase[] | null> {
@@ -963,6 +987,58 @@ export class TpClient {
       pathParam: ["testCases", testCaseId, "teststeps"],
       param: { "format": "json" },
     }) as T
+  }
+
+  async updateTestCase<T>({ id, name, description }: { id: string, name?: string, description?: string }): Promise<T> {
+    const testCase: Record<string, any> = { "Id": id }
+
+    if (name !== undefined) testCase["Name"] = name
+    if (description !== undefined) testCase["Description"] = description
+
+    return this.post<any, T>({
+      pathParam: ["testCases"],
+      param: { "format": "json" },
+    }, testCase) as T
+  }
+
+  async getTestStep<T>(testStepId: string): Promise<T> {
+    return this.get<T>({
+      pathParam: ["testSteps", testStepId],
+      param: { "format": "json" },
+    }) as T
+  }
+
+  async updateTestStep<T>({ id, description, result }: { id: string, description?: string, result?: string }): Promise<T> {
+    const testStep: Record<string, any> = { "Id": id }
+
+    if (description !== undefined) testStep["Description"] = description
+    if (result !== undefined) testStep["Result"] = result
+
+    return this.post<any, T>({
+      pathParam: ["testSteps"],
+      param: { "format": "json" },
+    }, testStep) as T
+  }
+
+  async deleteTestStep<T>(testStepId: string): Promise<TpResult<T>> {
+    return this.del<T>({
+      pathParam: ["testSteps", testStepId],
+      param: { "format": "json" },
+    })
+  }
+
+  async deleteCard<T>({ id, type }: { id: string, type: "Bug" | "UserStory" | "Feature" | "Epic" }): Promise<TpResult<T>> {
+    const pathSegment: Record<typeof type, string> = {
+      "Bug": "bugs",
+      "UserStory": "userStories",
+      "Feature": "features",
+      "Epic": "Epics",
+    }
+
+    return this.del<T>({
+      pathParam: [pathSegment[type], id],
+      param: { "format": "json" },
+    })
   }
 
   async getProjects<T>(): Promise<T> {
@@ -1164,6 +1240,40 @@ export class TpClient {
     }, body) as T
   }
 
+  async assignRole(cardId: string, userId: string, roleId: string): Promise<RoleAssignment | null> {
+    return this.post<any, RoleAssignment>({
+      pathParam: ["Assignments"],
+      param: { "format": "json" },
+    }, {
+      Assignable: { Id: parseInt(cardId) },
+      GeneralUser: { Id: parseInt(userId) },
+      Role: { Id: parseInt(roleId) },
+    })
+  }
+
+  async assignRoleToAllStoriesInFeature(featureId: string, userId: string, roleId: string): Promise<{ succeeded: RoleAssignment[]; failed: number[] }> {
+    const storiesResponse = await this.getFeatureUserStories<{ items: { userStories: { items: { id: number; name: string }[] } }[] }>(featureId)
+    const storyItems = storiesResponse?.items?.[0]?.userStories?.items ?? []
+    const succeeded: RoleAssignment[] = []
+    const failed: number[] = []
+    await Promise.all(storyItems.map(async (story) => {
+      const result = await this.assignRole(String(story.id), userId, roleId)
+      if (result) {
+        succeeded.push(result)
+      } else {
+        failed.push(story.id)
+      }
+    }))
+    return { succeeded, failed }
+  }
+
+  async getAssignmentRoles<T>(): Promise<T | null> {
+    return this.get<T>({
+      pathParam: ["Roles"],
+      param: { "format": "json" },
+    })
+  }
+
   async getMyTimeLogs<T>(take: number = 25): Promise<T> {
     return this.get<T>({
       pathParam: ["Times"],
@@ -1264,6 +1374,7 @@ export class TpClient {
     })
   }
 
+
   async addAttachedFile(generalId: string, source: { filePath: string } | { fileContent: string; fileName: string }): Promise<string | null> {
     let blob: Blob
     let fileName: string
@@ -1281,7 +1392,7 @@ export class TpClient {
     formData.append("file", blob, fileName)
 
     const url = `${this.baseUrl}/UploadFile.ashx?access_token=${this.token}`
-    console.error(JSON.stringify({ "UPLOAD_URL": url.replace(this.token, "***") }, null, 2))
+    console.error(JSON.stringify({ "UPLOAD_URL": this.redact(url) }, null, 2))
 
     try {
       const response = await fetch(url, {

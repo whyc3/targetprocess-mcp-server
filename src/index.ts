@@ -3,6 +3,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { JSDOM } from "jsdom";
+import { createRequire } from "module";
 
 import { TpClient } from "./tp.js";
 import * as TP from "./types.js";
@@ -21,11 +22,15 @@ import { handleGetReleaseOpenBugs } from "./handlers/get_release_open_bugs.js";
 import { handleGetReleaseOpenUserStories } from "./handlers/get_release_open_user_stories.js";
 import { handleGetUsers } from "./handlers/get_users.js";
 import { handleGetTeams, handleGetTeamsAndTeamAssignments } from "./handlers/get_teams.js";
+import { handleGetTeamIterations } from "./handlers/get_team_iterations.js";
 import { handleAddComment } from "./handlers/add_comment.js";
 import { handleGetUserStoryComments } from "./handlers/get_user_story_comments.js";
 import { handleGetBugComments } from "./handlers/get_bug_comments.js";
 import { handleCreateBug } from "./handlers/create_bug.js";
 import { handleCreateUserStory } from "./handlers/create_user_story.js";
+import { handleCreateFormattedUserStory } from "./handlers/create_formatted_user_story.js";
+import { handleCreateFormattedFeature } from "./handlers/create_formatted_feature.js";
+import { handleUpdateFeature } from "./handlers/update_feature.js";
 import { handleCreateFeature } from "./handlers/create_feature.js";
 import { handleCreateEpic } from "./handlers/create_epic.js";
 import { handleGetTestPlanById } from "./handlers/get_test_plan_by_id.js";
@@ -48,6 +53,8 @@ import { handleListMyBugs } from "./handlers/list_my_bugs.js";
 import { handleLogTime } from "./handlers/log_time.js";
 import { handleGetMyTimeLogs } from "./handlers/get_my_time_logs.js";
 import { handleGetFeatureUserStories } from "./handlers/get_feature_user_stories.js";
+import { handleGetFeatureContent } from "./handlers/get_feature_content.js";
+import { handleGetFeatureComments } from "./handlers/get_feature_comments.js";
 import { handleGetUserStoryBugs } from "./handlers/get_user_story_bugs.js";
 import { handleGetCardCurrentStatus } from "./handlers/get_card_current_status.js";
 import { handleUpdateUserStorySubState } from "./handlers/update_user_story_sub_state.js";
@@ -55,6 +62,13 @@ import { handleGetCardRelations } from "./handlers/get_card_relations.js";
 import { handleCreateCardRelation } from "./handlers/create_card_relation.js";
 import { handleDeleteCardRelation } from "./handlers/delete_card_relation.js";
 import { handleSearchTpCards } from "./handlers/search_tp_cards.js";
+import { handleDeleteCard } from "./handlers/delete_card.js";
+import { handleGetProcessWorkflows } from "./handlers/get_process_workflows.js";
+import { handleGetProcesses } from "./handlers/get_processes.js";
+import { handleGetBugWorkflows } from "./handlers/get_bug_workflows.js";
+import { handleGetUserStoryWorkflows } from "./handlers/get_user_story_workflows.js";
+import { handleGetRelationTypes } from "./handlers/get_relation_types.js";
+import { handleGetVersion } from "./handlers/get_version.js";
 
 const server = new McpServer(
   {
@@ -87,7 +101,7 @@ server.registerTool(
     inputSchema: {
       id: z.string()
         .min(5)
-        .max(6)
+        .max(9)
         .describe('TP (or tp) ID (e.g. 145789)')
     },
   },
@@ -129,12 +143,14 @@ server.registerTool(
       name: z.string()
         .describe('Release name'),
       results: z.number()
-        .default(100)
+        .default(300)
         .optional()
         .describe('Number of results to return, default is 100'),
+      withDescription: z.boolean()
+        .describe('Include description in the response'),
     },
   },
-  async ({ name, results }) => handleGetReleaseBugs(tp, name, results)
+  async ({ name, results, withDescription }) => handleGetReleaseBugs(tp, name, results, withDescription)
 );
 
 server.registerTool(
@@ -293,7 +309,7 @@ server.registerTool(
     inputSchema: {
       id: z.string()
         .min(5)
-        .max(6)
+        .max(9)
         .describe('Bug card ID (e.g. 145789)')
     },
   },
@@ -334,7 +350,7 @@ server.registerTool(
     inputSchema: {
       id: z.string()
         .min(5)
-        .max(6)
+        .max(9)
         .describe('TP card id, usually user story or bug ID (e.g. 145789)'),
       comment: z.string()
         .describe('Comment content to add'),
@@ -388,7 +404,7 @@ server.registerTool(
     inputSchema: {
       id: z.string()
         .min(5)
-        .max(6)
+        .max(9)
         .describe('TP card id, usually user story or bug ID (e.g. 145789)'),
       comment: z.string()
         .describe('Comment content to add'),
@@ -405,7 +421,7 @@ server.registerTool(
     inputSchema: {
       id: z.string()
         .min(5)
-        .max(6)
+        .max(9)
         .describe('TP user story ID (e.g. 145789)'),
       results: z.number()
         .default(25)
@@ -424,7 +440,7 @@ server.registerTool(
     inputSchema: {
       id: z.string()
         .min(5)
-        .max(6)
+        .max(9)
         .describe('TP bug ID (e.g. 145789)'),
       results: z.number()
         .default(25)
@@ -454,7 +470,7 @@ server.registerTool(
       card: z.object({
         id: z.string()
           .min(5)
-          .max(6)
+          .max(9)
           .describe(`Usually user story id, bug ID, or feature ID (e.g. 145789)`),
         type: z.enum(["UserStory", "Bug", "Feature"])
       }),
@@ -516,11 +532,12 @@ server.registerTool(
       CRITICAL WORKFLOW: Before calling this tool, you MUST follow these steps:
         1) IF the user specified a team by name (not ID), call "get_teams" to find the matching team and use its ID as teamId;
         2) IF the user specified a project by name (not ID), call "get_projects" to find the matching project and use its ID as projectId;
-        3) IF the user specified a state by name (not ID), call "get_bug_workflows" to find the matching state and use its ID as entityStateId;`,
+        3) IF the user specified a state by name (not ID), call "get_bug_workflows" to find the matching state and use its ID as entityStateId;
+        4) IF the user specified a sprint/iteration by name, call "get_team_iterations" to find the matching iteration and use its ID as teamIterationId;`,
     inputSchema: {
       id: z.string()
         .min(5)
-        .max(6)
+        .max(9)
         .describe('Bug card ID (e.g. 145789)'),
       title: z.string()
         .optional()
@@ -550,10 +567,16 @@ server.registerTool(
       entityStateId: z.string()
         .optional()
         .describe('Optional Entity State ID — if user gave a state name, resolve it via "get_bug_workflows" first; defaults to "Done"'),
+      tags: z.string()
+        .optional()
+        .describe('Optional comma-separated tags to apply, e.g. "regression, mobile"'),
+      teamIterationId: z.string()
+        .optional()
+        .describe('Optional Team Iteration (sprint) ID — resolve it via "get_team_iterations" first'),
     },
   },
-  async ({ id, title, bugContent, origin, projectId, teamId, entityStateId }) =>
-    handleUpdateBug(tp, { id, title, bugContent, origin, projectId, teamId, entityStateId })
+  async ({ id, title, bugContent, origin, projectId, teamId, entityStateId, tags, teamIterationId }) =>
+    handleUpdateBug(tp, { id, title, bugContent, origin, projectId, teamId, entityStateId, tags, teamIterationId })
 )
 
 server.registerTool(
@@ -567,7 +590,7 @@ server.registerTool(
     inputSchema: {
       id: z.string()
         .min(5)
-        .max(6)
+        .max(9)
         .describe('User story card ID (e.g. 145789)'),
       entityStateId: z.string()
         .optional()
@@ -590,11 +613,12 @@ server.registerTool(
       CRITICAL WORKFLOW: Before calling this tool, you MUST follow these steps:
         1) IF the user specified a team by name (not ID), call "get_teams" to find the matching team and use its ID as teamId;
         2) IF the user specified a project by name (not ID), call "get_projects" to find the matching project and use its ID as projectId;
-        3) IF the user specified a state by name (not ID), call "get_user_story_workflows" to find the matching state and use its ID as entityStateId;`,
+        3) IF the user specified a state by name (not ID), call "get_user_story_workflows" to find the matching state and use its ID as entityStateId;
+        4) IF the user specified a sprint/iteration by name, call "get_team_iterations" to find the matching iteration and use its ID as teamIterationId;`,
     inputSchema: {
       id: z.string()
         .min(5)
-        .max(6)
+        .max(9)
         .describe('User story card ID (e.g. 145789)'),
       title: z.string()
         .optional()
@@ -611,10 +635,19 @@ server.registerTool(
       entityStateId: z.string()
         .optional()
         .describe('Optional Entity State ID — if user gave a state name, resolve it via "get_user_story_workflows" first'),
+      featureId: z.string()
+        .optional()
+        .describe('Optional Feature ID — moves this user story to the specified feature'),
+      tags: z.string()
+        .optional()
+        .describe('Optional comma-separated tags to apply, e.g. "regression, mobile"'),
+      teamIterationId: z.string()
+        .optional()
+        .describe('Optional Team Iteration (sprint) ID — resolve it via "get_team_iterations" first'),
     },
   },
-  async ({ id, title, description, projectId, teamId, entityStateId }) => {
-    const response = await tp.updateUserStory<any>({ id, title, description, projectId, teamId, entityStateId });
+  async ({ id, title, description, projectId, teamId, entityStateId, featureId, tags, teamIterationId }) => {
+    const response = await tp.updateUserStory<any>({ id, title, description, projectId, teamId, entityStateId, featureId, tags, teamIterationId });
 
     if (!response) {
       return {
@@ -643,7 +676,8 @@ server.registerTool(
       CRITICAL WORKFLOW: Before calling this tool, you MUST follow these steps:
         1) format the new bug inside html <div> tags with Environment(describes where bug was found, dev, feature, review or uat Environment), Issue Description, Steps to Reproduce, Expected Behavior, Actual Behavior and Attachments sections (note: section titles should be wrapped in <h3> tags, e.g. <h3>Issue Description</h3>, step to reproduce should be wrapped in <ol>);
         2) IF the user specified a team by name (not ID), call "get_teams" to find the matching team and use its ID as teamId;
-        3) IF the user specified a project by name (not ID), call "get_projects" to find the matching project and use its ID as projectId;`,
+        3) IF the user specified a project by name (not ID), call "get_projects" to find the matching project and use its ID as projectId;
+        4) IF the user specified a sprint/iteration by name, call "get_team_iterations" to find the matching iteration and use its ID as teamIterationId;`,
     inputSchema: {
       title: z.string()
         .describe('Bug card title that summarizes the problem in concise, descriptive, and actionable manner, enabling a developer to understand the issue without opening the report'),
@@ -672,17 +706,24 @@ server.registerTool(
       entityStateId: z.string()
         .optional()
         .describe('Optional Entity State ID — if user gave a state name, resolve it via "get_bug_workflows" first; defaults to "Done"'),
+      tags: z.string()
+        .optional()
+        .describe('Optional comma-separated tags to apply, e.g. "regression, mobile"'),
+      teamIterationId: z.string()
+        .optional()
+        .describe('Optional Team Iteration (sprint) ID — resolve it via "get_team_iterations" first'),
     },
   },
-  async ({ title, bugContent, origin, projectId, teamId, entityStateId }) =>
-    handleCreateBug(tp, { title, bugContent, origin, projectId, teamId, entityStateId })
+  async ({ title, bugContent, origin, projectId, teamId, entityStateId, tags, teamIterationId }) =>
+    handleCreateBug(tp, { title, bugContent, origin, projectId, teamId, entityStateId, tags, teamIterationId })
 )
 
 server.registerTool(
   'create_user_story',
   {
     title: 'Create a new user story',
-    description: `Create a new user story in Targetprocess.`,
+    description: `Create a new user story in Targetprocess.
+      CRITICAL WORKFLOW: Before calling this tool, IF the user specified a sprint/iteration by name, call "get_team_iterations" to find the matching iteration and use its ID as teamIterationId.`,
     inputSchema: {
       title: z.string()
         .describe('User story title'),
@@ -691,12 +732,12 @@ server.registerTool(
         .describe('Optional user story description (when provided, format as HTML)'),
       featureId: z.string()
         .min(5)
-        .max(6)
+        .max(9)
         .optional()
         .describe('Optional Feature ID to link this user story to (e.g. 145636)'),
       releaseId: z.string()
         .min(5)
-        .max(6)
+        .max(9)
         .optional()
         .describe('Optional Release ID to link this user story to (e.g. 145200)'),
       projectId: z.string()
@@ -705,23 +746,38 @@ server.registerTool(
       teamId: z.string()
         .optional()
         .describe('Optional Team ID — defaults to TP_TEAM_ID from config'),
+      tags: z.string()
+        .optional()
+        .describe('Optional comma-separated tags to apply, e.g. "regression, mobile"'),
+      teamIterationId: z.string()
+        .optional()
+        .describe('Optional Team Iteration (sprint) ID — resolve it via "get_team_iterations" first'),
     },
   },
-  async ({ title, description, featureId, releaseId, projectId, teamId }) =>
-    handleCreateUserStory(tp, { title, description, featureId, releaseId, projectId, teamId })
+  async ({ title, description, featureId, releaseId, projectId, teamId, tags, teamIterationId }) =>
+    handleCreateUserStory(tp, { title, description, featureId, releaseId, projectId, teamId, tags, teamIterationId })
 )
 
 server.registerTool(
   'create_formatted_user_story',
   {
     title: 'Create a formatted user story',
-    description: `Create a new user story in Targetprocess with a structured, template-driven description.
-      The description is assembled from discrete sections (header, definitions, acceptance criteria, Gherkin scenarios, edge cases, references, notes) and stored as HTML.
+    description: `Create a new user story in Targetprocess with a structured, template-driven description, assembled from discrete sections and stored as HTML.
+      Fill in each field to this quality bar:
+        1) Header — "asA" and "iWant" must be filled in, and "soThat" MUST be a real business outcome, not a restatement of "iWant";
+        2) Definitions — check for jargon, feature flags, module names, and acronyms; if none apply, OMIT the "definitions" field entirely (do not send an empty section);
+        3) Scenarios (write these BEFORE acceptanceCriteria) — at least one Gherkin scenario per distinct behavior; each scenario has exactly ONE "Then" outcome (split it into two scenarios if it needs two); avoid vague verbs like "system validates input" — spell out exactly what "validates" means in the "Then" step;
+        4) Examples Table — if any behavior is described as "supports various formats/roles/states", convert it into a Scenario Outline (one of the "scenarios" entries) plus a matching "examplesTable" with real values; if no parameterized behavior exists, OMIT "examplesTable";
+        5) Edge Cases — MANDATORY (include at least one error-state scenario and one boundary-condition scenario in "edgeCases") if the story touches validation/input handling, permissions/roles, or external data/integrations; otherwise OMIT "edgeCases";
+        6) Acceptance Criteria — every bullet MUST be traceable to a specific scenario or edge case above; if a bullet isn't backed by a scenario, it isn't a criterion yet — put it in "notes" as a flagged gap instead;
+        7) References — put mockup/spec links here, not inline in prose;
+        8) Notes — capture open questions or known constraints here; don't let them hide inside acceptanceCriteria;
       CRITICAL WORKFLOW: Before calling this tool, you MUST follow these steps:
         1) IF the user specified a feature by name (not ID), call "get_feature_user_stories" or "search_tp_cards" to resolve the feature ID;
         2) IF the user specified a release by name (not ID), call "get_current_releases" to resolve the release ID;
         3) IF the user specified a team by name (not ID), call "get_teams" to find the matching team and use its ID as teamId;
-        4) IF the user specified a project by name (not ID), call "get_projects" to find the matching project and use its ID as projectId;`,
+        4) IF the user specified a project by name (not ID), call "get_projects" to find the matching project and use its ID as projectId;
+        5) IF the user specified a sprint/iteration by name, call "get_team_iterations" to find the matching iteration and use its ID as teamIterationId;`,
     inputSchema: {
       title: z.string()
         .describe('User story title'),
@@ -734,7 +790,7 @@ server.registerTool(
         iWant: z.string()
           .describe('Goal — the "I want ..." part'),
         soThat: z.string()
-          .describe('Benefit — the "so that ..." part'),
+          .describe('Benefit — the "so that ..." part. MUST be a real business outcome, not a restatement of "iWant"'),
       })
         .describe('Story header following the As a / I want / so that format'),
       definitions: z.array(z.object({
@@ -742,22 +798,21 @@ server.registerTool(
           .describe('The term, module name, or feature flag being defined'),
         description: z.string()
           .describe('Explanation of the term'),
-      })),
-      acceptanceCriteria: z.array(z.string())
-        .min(1)
-        .describe('Bullet checklist items for quick review sign-off — each string is one criterion'),
+      }))
+        .optional()
+        .describe('Jargon, feature flags, module names, or acronyms that need defining. Omit entirely if none apply — do not send an empty section'),
       scenarios: z.array(z.object({
         name: z.string()
           .describe('Scenario name'),
         steps: z.array(z.string())
           .min(1)
-          .describe('Gherkin steps — each string is a full step line, e.g. "Given I am on the login page"'),
+          .describe('Gherkin steps — each string is a full step line, e.g. "Given I am on the login page". Exactly one "Then" step per scenario; split into another scenario if a second outcome is needed. Avoid vague verbs ("validates") — spell out what happens'),
       }))
         .min(1)
-        .describe('Gherkin scenario blocks, one per behavior branch'),
+        .describe('Gherkin scenario blocks, one per distinct behavior. Write these before acceptanceCriteria'),
       examplesTable: z.string()
         .optional()
-        .describe('Examples table for parameterized or matrix behavior (plain text or Gherkin Examples: table format)'),
+        .describe('Examples: table with real values backing a Scenario Outline for parameterized/matrix behavior (e.g. "supports various formats/roles/states"). Omit if no parameterized behavior exists'),
       edgeCases: z.array(z.object({
         name: z.string()
           .describe('Edge case scenario name'),
@@ -766,21 +821,24 @@ server.registerTool(
           .describe('Gherkin steps for this edge case'),
       }))
         .optional()
-        .describe('Explicit edge case or boundary condition scenarios'),
+        .describe('Explicit edge case or boundary condition scenarios. MANDATORY — at least one error-state and one boundary-condition scenario — if the story touches validation/input handling, permissions/roles, or external data/integrations; omit otherwise'),
+      acceptanceCriteria: z.array(z.string())
+        .min(1)
+        .describe('Bullet checklist items for quick review sign-off — each string is one criterion. Every bullet MUST be traceable to a specific scenario or edge case above'),
       references: z.string()
         .optional()
         .describe('Links to Axure mockups or other external references (not inline in prose)'),
       notes: z.string()
         .optional()
-        .describe('Anything that helps understand the story context but does not fit other sections'),
+        .describe('Open questions or known constraints that do not fit other sections — do not let these hide inside acceptanceCriteria'),
       featureId: z.string()
         .min(5)
-        .max(6)
+        .max(9)
         .optional()
         .describe('Optional Feature ID to link this user story to (e.g. 145636)'),
       releaseId: z.string()
         .min(5)
-        .max(6)
+        .max(9)
         .optional()
         .describe('Optional Release ID to link this user story to (e.g. 145200)'),
       projectId: z.string()
@@ -789,79 +847,129 @@ server.registerTool(
       teamId: z.string()
         .optional()
         .describe('Optional Team ID — defaults to TP_TEAM_ID from config'),
+      tags: z.string()
+        .optional()
+        .describe('Optional comma-separated tags to apply, e.g. "regression, mobile"'),
+      teamIterationId: z.string()
+        .optional()
+        .describe('Optional Team Iteration (sprint) ID — resolve it via "get_team_iterations" first'),
     },
   },
-  async ({ title, header, definitions, acceptanceCriteria, scenarios, examplesTable, edgeCases, references, notes, featureId, releaseId, projectId, teamId }) => {
-    const gherkinBlock = (items: { name: string; steps: string[] }[]) =>
-      items.map((s, indx) => `<div><strong>Scenario ${indx + 1} - ${s.name}:</strong></div><div>${s.steps.map(step => `<div>\t${step}</div>`).join('\n')}</div>`).join('<br>')
+  async ({ title, header, definitions, scenarios, examplesTable, edgeCases, acceptanceCriteria, references, notes, featureId, releaseId, projectId, teamId, tags, teamIterationId }) =>
+    handleCreateFormattedUserStory(tp, { title, header, definitions, scenarios, examplesTable, edgeCases, acceptanceCriteria, references, notes, featureId, releaseId, projectId, teamId, tags, teamIterationId })
+)
 
-    const parts: string[] = ['<div>']
-
-    parts.push('<h3>Header</h3>')
-    if (header.storyId) parts.push(`<p><strong>Story ID:</strong> ${header.storyId}</p>`)
-    parts.push(`<p>As a ${header.asA} <br> I want ${header.iWant} <br> so that ${header.soThat}</p>`)
-
-    if (definitions) {
-      parts.push('<h3>Definitions</h3>')
-      parts.push(`<div>`)
-      for (const def of definitions) {
-        parts.push(`<p><strong>${def.term}</strong> — ${def.description}</p>`)
-      }
-      parts.push(`</div>`)
-    }
-
-    parts.push('<h3>Acceptance Criteria</h3>')
-    parts.push('<ol>')
-    for (const criterion of acceptanceCriteria) {
-      parts.push(`<li>${criterion}</li>`)
-    }
-    parts.push('</ol>')
-
-    parts.push('<h3>Scenarios</h3>')
-    parts.push(gherkinBlock(scenarios))
-
-    if (examplesTable) {
-      parts.push('<h3>Examples</h3>')
-      parts.push(`<pre>${examplesTable}</pre>`)
-    }
-
-    if (edgeCases && edgeCases.length > 0) {
-      parts.push('<h3>Edge Cases</h3>')
-      parts.push(gherkinBlock(edgeCases))
-    }
-
-    if (references) {
-      parts.push('<h3>References</h3>')
-      parts.push(`<p>${references}</p>`)
-    }
-
-    if (notes) {
-      parts.push('<h3>Notes</h3>')
-      parts.push(`<p>${notes}</p>`)
-    }
-
-    parts.push('</div>')
-
-    const description = parts.join('\n')
-
-    const userStoryResponse = await tp.createUserStory<TP.UserStory>({ title, description, featureId, releaseId, projectId, teamId });
-
-    if (!userStoryResponse) {
-      return {
-        content: [{
-          type: 'text',
-          text: `Failed to create formatted user story "${title}"\n JSON: ${JSON.stringify(userStoryResponse, null, 2)}`
-        }]
-      };
-    }
-
-    return {
-      content: [{
-        type: 'text',
-        text: JSON.stringify(userStoryResponse)
-      }],
-    };
-  }
+server.registerTool(
+  'create_formatted_feature',
+  {
+    title: 'Create a formatted feature',
+    description: `Create a new Feature in Targetprocess with a structured, template-driven description (feature-level TDRE), assembled from discrete sections and stored as HTML.
+      Features sit above user stories — this template isn't about writing Gherkin for individual behaviors (that belongs on child stories); it's about tracking cross-cutting constraints, risks, and open questions to a testable/decided state before they get lost across many separate stories.
+      Fill in each field to this quality bar:
+        1) Header — "businessBackground" is a 1-2 sentence value statement: who benefits and why;
+        2) Definitions — cross-cutting terms used across multiple child stories, so they aren't redefined at every story level; if none apply, OMIT "definitions" entirely (do not send an empty section);
+        3) Scope & Boundaries — what this feature explicitly includes/excludes, to stop child stories drifting into adjacent features; omit if genuinely trivial;
+        4) Non-Functional Requirements ("nonFunctionalRequirements") — every NFR category (Security, Compliance, Billing, Operational, etc.) MUST be converted from prose into one row with status "Covered" (link the child story/scenario that proves it in storyOrOwner), "Gap" (no story covers it yet — storyOrOwner names who should follow up), or "Decision needed" (genuinely still open, not testable until resolved). This is the core of the template — never leave an NFR as untested prose;
+        5) Cross-Cutting Scenarios — ONLY for behavior spanning multiple child stories that wouldn't naturally sit in any one of them (e.g. tenant isolation across all stories); do not duplicate per-story Gherkin here; omit if none apply;
+        6) Child Stories ("childStories") — pull this from "get_feature_user_stories" / "get_not_covered_user_stories_in_feature" rather than retyping it; keep it as a live pointer, not a duplicate spec; normally empty when first creating the feature;
+        7) Open Questions / Risks ("openQuestions") — anything raised at feature conception that hasn't been resolved into either a Covered NFR row or a child story; this is the section most likely to get silently dropped — treat it as the running "not done yet" list until each line is promoted to a Covered NFR row;
+        8) References — mockup/spec links here, not inline in prose;
+        9) Notes — anything else that helps understand context but doesn't fit other sections;
+      CRITICAL WORKFLOW: Before calling this tool, you MUST follow these steps:
+        1) IF the user specified an epic by name (not ID), resolve the epic ID first;
+        2) IF the user specified a release by name (not ID), call "get_current_releases" to resolve the release ID;
+        3) IF the user specified a team by name (not ID), call "get_teams" to find the matching team and use its ID as teamId;
+        4) IF the user specified a project by name (not ID), call "get_projects" to find the matching project and use its ID as projectId;
+        5) IF this feature already has child stories, call "get_feature_user_stories" and "get_not_covered_user_stories_in_feature" to build "childStories" instead of guessing coverage;`,
+    inputSchema: {
+      title: z.string()
+        .describe('Feature title'),
+      header: z.object({
+        featureId: z.string()
+          .optional()
+          .describe('Feature ID if already known (e.g. TP-145636), omit for new features'),
+        businessBackground: z.string()
+          .describe('1-2 sentence value statement — who benefits and why'),
+      })
+        .describe('Feature header'),
+      definitions: z.array(z.object({
+        term: z.string()
+          .describe('The term, module name, or feature flag being defined'),
+        description: z.string()
+          .describe('Explanation of the term'),
+      }))
+        .optional()
+        .describe('Cross-cutting terms used across multiple child stories, avoiding re-defining the same term at every story level. Omit entirely if none apply'),
+      scope: z.object({
+        includes: z.array(z.string())
+          .optional()
+          .describe('What this feature explicitly includes'),
+        excludes: z.array(z.string())
+          .optional()
+          .describe('What this feature explicitly excludes — prevents child stories drifting into adjacent features'),
+      })
+        .optional()
+        .describe('Scope & Boundaries. Omit if genuinely trivial'),
+      nonFunctionalRequirements: z.array(z.object({
+        area: z.string()
+          .describe('NFR category, e.g. Security, Compliance, Billing, Operational'),
+        requirement: z.string()
+          .describe('The requirement, stated so it can be judged Covered/Gap/Decision needed'),
+        status: z.enum(["Covered", "Gap", "Decision needed"])
+          .describe('Covered = a child story/scenario proves it; Gap = no story covers it yet; Decision needed = still open — not testable until resolved'),
+        storyOrOwner: z.string()
+          .describe('If Covered, the child story ID/scenario that proves it; if Gap or Decision needed, who owns the follow-up (e.g. "Needs legal/BA follow-up")'),
+      }))
+        .min(1)
+        .describe('Every NFR category converted from prose into a testable/decided row — the core of this template. Do not leave requirements as untested prose'),
+      crossCuttingScenarios: z.array(z.object({
+        name: z.string()
+          .describe('Scenario name'),
+        steps: z.array(z.string())
+          .min(1)
+          .describe('Gherkin steps — each string is a full step line'),
+      }))
+        .optional()
+        .describe('Only for behavior spanning multiple child stories that would not naturally sit in any single one of them. Do not duplicate per-story Gherkin here; omit if none apply'),
+      childStories: z.array(z.object({
+        id: z.string()
+          .describe('Child story ID (e.g. 145789)'),
+        name: z.string()
+          .describe('Child story title'),
+        covered: z.boolean()
+          .describe('Whether this story is covered by tests'),
+      }))
+        .optional()
+        .describe('Pull this from "get_feature_user_stories" / "get_not_covered_user_stories_in_feature" rather than retyping it — a live pointer, not a duplicate spec. Normally empty when first creating the feature'),
+      openQuestions: z.array(z.string())
+        .optional()
+        .describe('Anything raised at feature conception not yet resolved into a Covered NFR row or a child story — the running "not done yet" list'),
+      references: z.string()
+        .optional()
+        .describe('Links to specs/mockups (not inline in prose)'),
+      notes: z.string()
+        .optional()
+        .describe('Anything else that helps understand context but does not fit other sections'),
+      epicId: z.string()
+        .min(5)
+        .max(9)
+        .optional()
+        .describe('Optional Epic ID to link this feature to (e.g. 145636)'),
+      releaseId: z.string()
+        .min(5)
+        .max(9)
+        .optional()
+        .describe('Optional Release ID to link this feature to (e.g. 145200)'),
+      projectId: z.string()
+        .optional()
+        .describe('Optional Project ID — defaults to TP_PROJECT_ID from config'),
+      teamId: z.string()
+        .optional()
+        .describe('Optional Team ID — defaults to TP_TEAM_ID from config'),
+    },
+  },
+  async ({ title, header, definitions, scope, nonFunctionalRequirements, crossCuttingScenarios, childStories, openQuestions, references, notes, epicId, releaseId, projectId, teamId }) =>
+    handleCreateFormattedFeature(tp, { title, header, definitions, scope, nonFunctionalRequirements, crossCuttingScenarios, childStories, openQuestions, references, notes, epicId, releaseId, projectId, teamId })
 )
 
 server.registerTool(
@@ -877,12 +985,12 @@ server.registerTool(
         .describe('Optional feature description (when provided, format as HTML)'),
       epicId: z.string()
         .min(5)
-        .max(6)
+        .max(9)
         .optional()
         .describe('Optional Epic ID to link this feature to (e.g. 145636)'),
       releaseId: z.string()
         .min(5)
-        .max(6)
+        .max(9)
         .optional()
         .describe('Optional Release ID to link this feature to (e.g. 145200)'),
       projectId: z.string()
@@ -898,6 +1006,60 @@ server.registerTool(
 )
 
 server.registerTool(
+  'update_feature',
+  {
+    title: 'Update a feature card',
+    description: `Update a feature card with data provided from user input.
+      NOTE: pass only the fields that user wants to update.
+      CRITICAL WORKFLOW: Before calling this tool, you MUST follow these steps:
+        1) IF the user specified an epic by name (not ID), resolve the epic ID first;
+        2) IF the user specified a release by name (not ID), call "get_current_releases" to resolve the release ID;
+        3) IF the user specified a team by name (not ID), call "get_teams" to find the matching team and use its ID as teamId;
+        4) IF the user specified a project by name (not ID), call "get_projects" to find the matching project and use its ID as projectId;
+        5) IF the user specified a sprint/iteration by name, call "get_team_iterations" to find the matching iteration and use its ID as teamIterationId;`,
+    inputSchema: {
+      id: z.string()
+        .min(5)
+        .max(9)
+        .describe('Feature card ID (e.g. 145636)'),
+      title: z.string()
+        .optional()
+        .describe('Updated feature title'),
+      description: z.string()
+        .optional()
+        .describe('Updated feature description (format as HTML)'),
+      epicId: z.string()
+        .min(5)
+        .max(9)
+        .optional()
+        .describe('Optional Epic ID — moves this feature to the specified epic'),
+      releaseId: z.string()
+        .min(5)
+        .max(9)
+        .optional()
+        .describe('Optional Release ID to link this feature to'),
+      projectId: z.string()
+        .optional()
+        .describe('Optional Project ID — if user gave a project name, resolve it via "get_projects" first'),
+      teamId: z.string()
+        .optional()
+        .describe('Optional Team ID — if user gave a team name, resolve it via "get_teams" first'),
+      entityStateId: z.string()
+        .optional()
+        .describe('Optional Entity State ID — ask the user for the exact ID if given a state name; no dedicated feature-workflow lookup tool exists yet'),
+      tags: z.string()
+        .optional()
+        .describe('Optional comma-separated tags to apply, e.g. "regression, mobile"'),
+      teamIterationId: z.string()
+        .optional()
+        .describe('Optional Team Iteration (sprint) ID — resolve it via "get_team_iterations" first'),
+    },
+  },
+  async ({ id, title, description, epicId, releaseId, projectId, teamId, entityStateId, tags, teamIterationId }) =>
+    handleUpdateFeature(tp, { id, title, description, epicId, releaseId, projectId, teamId, entityStateId, tags, teamIterationId })
+)
+
+server.registerTool(
   'create_epic',
   {
     title: 'Create a new epic',
@@ -910,7 +1072,7 @@ server.registerTool(
         .describe('Optional epic description (when provided, format as HTML)'),
       releaseId: z.string()
         .min(5)
-        .max(6)
+        .max(9)
         .optional()
         .describe('Optional Release ID to link this epic to (e.g. 145200)'),
       projectId: z.string()
@@ -930,7 +1092,7 @@ server.registerTool(
     inputSchema: {
       id: z.string()
         .min(5)
-        .max(6)
+        .max(9)
         .describe('Epic ID (e.g. 148813)'),
     },
   },
@@ -945,7 +1107,7 @@ server.registerTool(
     inputSchema: {
       id: z.string()
         .min(5)
-        .max(6)
+        .max(9)
         .describe('Epic ID (e.g. 148813)'),
       title: z.string()
         .optional()
@@ -955,7 +1117,7 @@ server.registerTool(
         .describe('Updated epic description (format as HTML)'),
       releaseId: z.string()
         .min(5)
-        .max(6)
+        .max(9)
         .optional()
         .describe('Optional Release ID to link this epic to'),
       projectId: z.string()
@@ -975,7 +1137,7 @@ server.registerTool(
     inputSchema: {
       id: z.string()
         .min(5)
-        .max(6)
+        .max(9)
         .describe('Epic ID (e.g. 148813)'),
     },
   },
@@ -992,7 +1154,7 @@ server.registerTool(
         .describe('Test plan title — use the linked card name'),
       resourceId: z.string()
         .min(5)
-        .max(6)
+        .max(9)
         .describe('ID of the card to link this test plan to (e.g. 145789)'),
       resourceType: z.enum(['UserStory', 'Bug', 'Feature'])
         .default('UserStory')
@@ -1206,7 +1368,7 @@ server.registerTool(
     inputSchema: {
       id: z.string()
         .min(5)
-        .max(6)
+        .max(9)
         .describe('TP feature ID (e.g. 145636)'),
     },
   },
@@ -1314,12 +1476,99 @@ server.registerTool(
     inputSchema: {
       id: z.string()
         .min(5)
-        .max(6)
+        .max(9)
         .describe('TP feature ID (e.g. 145636)'),
     },
   },
   async ({ id }) => handleGetFeatureUserStories(tp, id)
 );
+
+server.registerTool(
+  'get_feature_content',
+  {
+    title: 'Get TP feature content',
+    description: 'Get a Targetprocess Feature by ID, including description, state, and progress',
+    inputSchema: {
+      id: z.string()
+        .min(5)
+        .max(9)
+        .describe('TP feature ID (e.g. 145636)'),
+    },
+  },
+  async ({ id }) => handleGetFeatureContent(tp, id)
+);
+
+server.registerTool(
+  'get_feature_comments',
+  {
+    title: 'Get feature comments',
+    description: 'Get comments for a TP feature by its ID',
+    inputSchema: {
+      id: z.string()
+        .min(5)
+        .max(9)
+        .describe('TP feature ID (e.g. 145636)'),
+      results: z.number()
+        .default(25)
+        .optional()
+        .describe('Number of comments to return, default is 25'),
+    },
+  },
+  async ({ id, results }) => handleGetFeatureComments(tp, id, results)
+);
+
+server.registerTool(
+  'get_assignment_roles',
+  {
+    title: 'Get assignment roles',
+    description: 'Returns all available assignment roles (e.g. Business Analyst, Developer) with their IDs.',
+    inputSchema: {},
+  },
+  async () => {
+    const result = await tp.getAssignmentRoles<{ items: { id: number; name: string }[] }>()
+    return {
+      content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
+    }
+  }
+)
+
+server.registerTool(
+  'assign_role',
+  {
+    title: 'Assign a role to a user on a card',
+    description: 'Assigns a user to a specific role on a single TP card (User Story, Bug, etc.).',
+    inputSchema: {
+      cardId: z.string().describe('TP card ID (e.g. 149350)'),
+      userId: z.string().describe('TP user ID'),
+      roleId: z.string().describe('TP role ID — use get_assignment_roles to find the right ID'),
+    },
+  },
+  async ({ cardId, userId, roleId }) => {
+    const result = await tp.assignRole(cardId, userId, roleId)
+    return {
+      content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
+    }
+  }
+)
+
+server.registerTool(
+  'assign_role_to_feature',
+  {
+    title: 'Assign a role to a user on all user stories in a feature',
+    description: 'Assigns a user to a specific role on every user story within a given feature.',
+    inputSchema: {
+      featureId: z.string().describe('TP feature ID (e.g. 149341)'),
+      userId: z.string().describe('TP user ID'),
+      roleId: z.string().describe('TP role ID — use get_assignment_roles to find the right ID'),
+    },
+  },
+  async ({ featureId, userId, roleId }) => {
+    const result = await tp.assignRoleToAllStoriesInFeature(featureId, userId, roleId)
+    return {
+      content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
+    }
+  }
+)
 
 server.registerTool(
   'get_user_story_bugs',
@@ -1329,7 +1578,7 @@ server.registerTool(
     inputSchema: {
       id: z.string()
         .min(5)
-        .max(6)
+        .max(9)
         .describe('TP user story ID (e.g. 145789)'),
     },
   },
@@ -1360,6 +1609,21 @@ server.registerTool(
 );
 
 server.registerTool(
+  'get_team_iterations',
+  {
+    title: 'Get team iterations',
+    description: `Get Targetprocess team iterations (sprints), optionally filtered by team. Use this to resolve a sprint/iteration name to an ID before calling create_user_story, create_bug, update_user_story, or update_bug with teamIterationId.
+      CRITICAL WORKFLOW: IF the user specified a team by name (not ID), call "get_teams" first to find the matching team and use its ID as teamId.`,
+    inputSchema: {
+      teamId: z.string()
+        .optional()
+        .describe('Optional Team ID to filter iterations by — resolve it via "get_teams" first'),
+    },
+  },
+  async ({ teamId }) => handleGetTeamIterations(tp, { teamId })
+);
+
+server.registerTool(
   'get_logged_in_user',
   {
     title: 'Get logged in user',
@@ -1376,7 +1640,7 @@ server.registerTool(
     inputSchema: {
       resourceId: z.string()
         .min(5)
-        .max(6)
+        .max(9)
         .describe('TP UserStory ID (e.g. 145789)')
     },
   },
@@ -1483,7 +1747,7 @@ server.registerTool(
     inputSchema: {
       resourceId: z.string()
         .min(5)
-        .max(6)
+        .max(9)
         .describe('TP card ID (e.g. 145789)'),
       resourceType: z.enum(['UserStory', 'Bug', 'Feature'])
         .default('UserStory')
@@ -1542,7 +1806,7 @@ server.registerTool(
     inputSchema: {
       testPlanId: z.string()
         .min(5)
-        .max(6)
+        .max(9)
         .describe('Test plan ID to add test cases to (e.g. 145789)'),
       testCases: z.array(z.object({
         name: z.string()
@@ -1606,35 +1870,7 @@ server.registerTool(
         .describe('Process ID (e.g. 145636)'),
     },
   },
-  async ({ processId }) => {
-    const response = await tp.getProcessWorkflows<TP.TpResponseV2<TP.ProcessV2>>({ processId })
-
-    if (!response) {
-      return {
-        content: [{
-          type: 'text',
-          text: `Failed to get process workflows, JSON: ${JSON.stringify(response, null, 2)}`
-        }],
-      }
-    }
-
-    const items = response.items || [];
-    if (items.length === 0) {
-      return {
-        content: [{
-          type: 'text',
-          text: `No process workflows found`,
-        }],
-      };
-    }
-
-    return {
-      content: [{
-        type: 'text',
-        text: JSON.stringify(items)
-      }],
-    };
-  }
+  async ({ processId }) => handleGetProcessWorkflows(tp, processId)
 )
 
 server.registerTool(
@@ -1643,35 +1879,7 @@ server.registerTool(
     title: 'Get processes',
     description: 'Get all Targetprocess processes',
   },
-  async ({ }) => {
-    const response = await tp.getProcesses<TP.TpResponseV2<TP.ProcessV2>>()
-
-    if (!response) {
-      return {
-        content: [{
-          type: 'text',
-          text: `Failed to get processes, JSON: ${JSON.stringify(response, null, 2)}`
-        }],
-      }
-    }
-
-    const items = response.items || [];
-    if (items.length === 0) {
-      return {
-        content: [{
-          type: 'text',
-          text: `No processes found`,
-        }],
-      };
-    }
-
-    return {
-      content: [{
-        type: 'text',
-        text: JSON.stringify(items)
-      }],
-    };
-  }
+  async () => handleGetProcesses(tp)
 )
 
 server.registerTool(
@@ -1680,46 +1888,7 @@ server.registerTool(
     title: 'Get bug workflows',
     description: 'Get all Targetprocess bug workflows',
   },
-  async ({ }) => {
-    const response = await tp.getBugWorkflows<TP.TpResponseV2<TP.WorkflowV2>>()
-
-    if (!response) {
-      return {
-        content: [{
-          type: 'text',
-          text: `Failed to get bug entity statuses, JSON: ${JSON.stringify(response, null, 2)}`
-        }],
-      }
-    }
-
-    const items = response.items || []
-    if (items.length === 0) {
-      return {
-        content: [{
-          type: 'text',
-          text: `No status data found for workflows`
-        }],
-      }
-    }
-
-    const workflows = items.map((w) => ({
-      id: w.id,
-      name: w.name,
-      processId: w.process,
-      entityType: w.entityType,
-      entityStates: w.entityStates.map((es) => ({
-        id: es.id,
-        name: es.name,
-      })),
-    }))
-
-    return {
-      content: [{
-        type: 'text',
-        text: JSON.stringify(workflows)
-      }],
-    };
-  })
+  async () => handleGetBugWorkflows(tp))
 
 server.registerTool(
   'get_user_story_workflows',
@@ -1727,46 +1896,7 @@ server.registerTool(
     title: 'Get User Story workflows',
     description: 'Get all Targetprocess user story workflows, with sub-states',
   },
-  async ({ }) => {
-    const response = await tp.getUserStoryWorkflowsWithSubStates<TP.TpResponseV2<TP.WorkflowV2WithSubStates>>()
-
-    if (!response) {
-      return {
-        content: [{
-          type: 'text',
-          text: `Failed to get user story entity statuses, JSON: ${JSON.stringify(response, null, 2)}`
-        }],
-      }
-    }
-
-    const items = response.items || []
-    if (items.length === 0) {
-      return {
-        content: [{
-          type: 'text',
-          text: `No status data found for workflows`
-        }],
-      }
-    }
-
-    const userStoryWorkflows = items.filter((w) => w.entityType.name === "UserStory")
-    const workflows = userStoryWorkflows.map((w) => ({
-      id: w.id,
-      processId: w.workflow.process.id,
-      entityType: w.entityType.name,
-      entityStates: w.subEntityStates.map((es) => ({
-        id: es.id,
-        name: es.name,
-      })),
-    }))
-
-    return {
-      content: [{
-        type: 'text',
-        text: JSON.stringify(workflows)
-      }],
-    };
-  }
+  async () => handleGetUserStoryWorkflows(tp)
 )
 
 server.registerTool(
@@ -1777,7 +1907,7 @@ server.registerTool(
     inputSchema: {
       id: z.string()
         .min(5)
-        .max(6)
+        .max(9)
         .describe('TP card ID (e.g. 146055)'),
       resourceType: z.enum(['UserStory', 'Bug', 'Feature'])
         .default('UserStory')
@@ -1799,7 +1929,7 @@ server.registerTool(
     inputSchema: {
       id: z.string()
         .min(5)
-        .max(6)
+        .max(9)
         .describe('TP card ID (e.g. 145789)'),
     },
   },
@@ -1812,20 +1942,7 @@ server.registerTool(
     title: 'Get relation types',
     description: 'Get all relation types available in this Targetprocess instance (id + name). Use this to find the correct relationType name for "create_card_relation".',
   },
-  async () => {
-    const response = await tp.getRelationTypes<TP.TpResponse<TP.RelationType>>()
-
-    if (!response) {
-      return {
-        content: [{ type: 'text', text: `Failed to get relation types` }],
-      }
-    }
-
-    const items = (response.Items || []).map((t) => ({ id: t.Id, name: t.Name }))
-    return {
-      content: [{ type: 'text', text: JSON.stringify(items) }],
-    }
-  }
+  async () => handleGetRelationTypes(tp)
 )
 
 server.registerTool(
@@ -1838,11 +1955,11 @@ server.registerTool(
     inputSchema: {
       masterId: z.string()
         .min(5)
-        .max(6)
+        .max(9)
         .describe('Master card ID — the source of the relation (e.g. 145789)'),
       slaveId: z.string()
         .min(5)
-        .max(6)
+        .max(9)
         .describe('Slave card ID — the target of the relation (e.g. 145790)'),
       relationType: z.string()
         .optional()
@@ -1864,6 +1981,22 @@ server.registerTool(
     },
   },
   async ({ relationId }) => handleDeleteCardRelation(tp, relationId)
+)
+
+server.registerTool(
+  'delete_card',
+  {
+    title: 'Delete a card (Bug, User Story, Feature, or Epic)',
+    description: `Delete (remove) a Targetprocess card by its ID. Works on Bugs, User Stories, Features, and Epics.
+      IF the type is uncertain, resolve it first via "search_tp_cards" or by fetching the card.`,
+    inputSchema: {
+      id: z.string()
+        .describe('The card ID to delete (e.g. 148980)'),
+      type: z.enum(["Bug", "UserStory", "Feature", "Epic"])
+        .describe('The entity type of the card being deleted'),
+    },
+  },
+  async ({ id, type }) => handleDeleteCard(tp, { id, type })
 )
 
 server.registerTool(
@@ -1889,7 +2022,7 @@ server.registerTool(
         .describe('Task title'),
       userStoryId: z.string()
         .min(5)
-        .max(6)
+        .max(9)
         .describe('User story ID to link the task to (e.g. 145789)'),
       description: z.string()
         .optional()
@@ -1960,8 +2093,7 @@ server.registerTool(
         .describe('Pagination offset, default is 0'),
     },
   },
-  async ({ state, take, skip }) => handleListMyBugs(tp, { state, take, skip })
-)
+  async ({ state, take, skip }) => handleListMyBugs(tp, { state, take, skip }))
 
 server.registerTool(
   'log_time',
@@ -1985,9 +2117,7 @@ server.registerTool(
         .describe('ISO date string, defaults to today (e.g. "2024-05-21")'),
     },
   },
-  async ({ entityId, entityType, hours, description, date }) =>
-    handleLogTime(tp, { entityId, entityType, hours, description, date })
-)
+  async ({ entityId, entityType, hours, description, date }) => handleLogTime(tp, { entityId, entityType, hours, description, date }))
 
 server.registerTool(
   'get_my_time_logs',
@@ -2003,6 +2133,136 @@ server.registerTool(
   },
   async ({ take }) => handleGetMyTimeLogs(tp, take)
 )
+
+const require = createRequire(import.meta.url);
+const { version } = require("../package.json");
+
+server.registerTool(
+  'get_version',
+  {
+    title: 'Get server version',
+    description: 'Returns the current version of the MCP server from package.json.',
+    inputSchema: {},
+  },
+  async () => handleGetVersion(version)
+)
+
+server.registerTool(
+  'get_test_plan_by_id',
+  {
+    title: 'Get test plan by ID',
+    description: 'Get a Targetprocess Test Plan by its ID, including name, plain-text description, state, and linked card.',
+    inputSchema: {
+      id: z.string()
+        .min(5)
+        .max(9)
+        .describe('Test plan ID (e.g. 145789)'),
+    },
+  }, async ({ id }) => handleGetTestPlanById(tp, id));
+
+server.registerTool(
+  'get_test_plan_test_cases_by_id',
+  {
+    title: 'Get test plan test cases by ID',
+    description: 'Get test cases belonging to a Targetprocess Test Plan by plan ID, including cases in nested child test plans/containers. Returns id, name, plain-text description, and containing test plan metadata (no steps).',
+    inputSchema: {
+      id: z.string()
+        .min(5)
+        .max(9)
+        .describe('Test plan ID (e.g. 145789)'),
+    },
+  }, async ({ id }) => handleGetTestPlanTestCasesById(tp, id));
+
+server.registerTool(
+  'get_test_plan_test_cases_with_steps_by_id',
+  {
+    title: 'Get test plan test cases with steps by ID',
+    description: 'Get test cases belonging to a Targetprocess Test Plan by plan ID, including nested child test plans/containers and each test case steps.',
+    inputSchema: {
+      id: z.string()
+        .min(5)
+        .max(9)
+        .describe('Test plan ID (e.g. 145789)'),
+    },
+  },
+  async ({ id }) => handleGetTestPlanTestCasesWithStepsById(tp, id)
+);
+
+server.registerTool(
+  'get_test_case_by_id',
+  {
+    title: 'Get test case by ID',
+    description: 'Get a single Targetprocess Test Case by its ID, including plain-text description and its steps.',
+    inputSchema: {
+      id: z.string()
+        .min(5)
+        .max(9)
+        .describe('Test case ID (e.g. 145789)'),
+    },
+  },
+  async ({ id }) => handleGetTestCaseById(tp, id));
+
+
+server.registerTool('update_test_case_by_id', {
+  title: 'Update test case by ID',
+  description: 'Update a Targetprocess Test Case by its ID. Supports name and description only.',
+  inputSchema: {
+    id: z.string()
+      .min(5)
+      .max(9)
+      .describe('Test case ID (e.g. 145789)'),
+    name: z.string()
+      .optional()
+      .describe('Updated test case name'),
+    description: z.string()
+      .optional()
+      .describe('Updated test case description (format as HTML or plain text)'),
+  },
+}, async ({ id, name, description }) => handleUpdateTestCaseById(tp, { id, name, description }));
+
+server.registerTool('add_test_case_step_by_id', {
+  title: 'Add test case step by test case ID',
+  description: 'Add a new step to a Targetprocess Test Case. Despite tool name consistency, this takes testCaseId, not a step ID.',
+  inputSchema: {
+    testCaseId: z.string()
+      .min(5)
+      .max(9)
+      .describe('Test case ID to append the step to (e.g. 145789)'),
+    description: z.string()
+      .describe('Step action text'),
+    result: z.string()
+      .describe('Expected result for this step'),
+  },
+}, async ({ testCaseId, description, result }) => handleAddTestCaseStepById(tp, { testCaseId, description, result }));
+
+
+server.registerTool('update_test_case_step_by_id', {
+  title: 'Update test case step by ID',
+  description: 'Update a Targetprocess Test Step by its ID. Supports description and result only.',
+  inputSchema: {
+    id: z.string()
+      .min(5)
+      .max(9)
+      .describe('Test step ID (e.g. 145789)'),
+    description: z.string()
+      .optional()
+      .describe('Updated step action text'),
+    result: z.string()
+      .optional()
+      .describe('Updated expected result for this step'),
+  },
+}, async ({ id, description, result }) => handleUpdateTestCaseStepById(tp, { id, description, result }));
+
+server.registerTool('delete_test_case_step_by_id', {
+  title: 'Delete test case step by ID',
+  description: 'Delete a Targetprocess Test Step by its ID.',
+  inputSchema: {
+    id: z.string()
+      .min(5)
+      .max(9)
+      .describe('Test step ID (e.g. 145789)'),
+  },
+}, async ({ id }) => handleDeleteTestCaseStepById(tp, id));
 
 async function main() {
   const transport = new StdioServerTransport();

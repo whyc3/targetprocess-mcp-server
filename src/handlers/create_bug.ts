@@ -10,6 +10,8 @@ export async function handleCreateBug(
     projectId?: string
     teamId?: string
     entityStateId?: string
+    tags?: string
+    teamIterationId?: string
   },
 ) {
   const bugResponse = await tp.createBugOnly<TP.Bug>(params)

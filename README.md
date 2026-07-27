@@ -42,6 +42,8 @@ Releases
 - `get_release_open_user_stories` — Get only active/open user stories for a release (name, withDescription, optional results)
 
 Features
+- `get_feature_content` — Get a Targetprocess Feature by ID, including description, state, and progress (id)
+- `get_feature_comments` — Get comments for a feature by its ID (id, optional results)
 - `get_feature_user_stories` — Get all user stories for a feature by its ID (id)
 - `get_not_covered_user_stories_in_feature` — Get user stories in a feature not yet covered by tests, includes `covered` field based on "Test Automation" custom field (id)
 
@@ -91,7 +93,7 @@ Cards — Write
 - `create_user_story` — Create a new user story (title, optional description, optional featureId, optional releaseId, optional projectId, optional teamId)  
 > [!NOTE]  
 > `projectId` and `teamId` are optional — fall back to `TP_PROJECT_ID` and `TP_TEAM_ID` from config  
-- `create_formatted_user_story` — Create a new user story with a structured template description (title, header object with asA/iWant/soThat, acceptanceCriteria array, scenarios array with Gherkin steps, optional definitions, examplesTable, edgeCases, references, notes, optional featureId, releaseId, projectId, teamId)  
+- `create_formatted_user_story` — Create a new user story with a structured template description in Header → Definitions → Scenarios → Examples Table → Edge Cases → Acceptance Criteria → References → Notes order (title, header object with asA/iWant/soThat, scenarios array with Gherkin steps, acceptanceCriteria array, optional definitions, examplesTable, edgeCases, references, notes, optional featureId, releaseId, projectId, teamId)  
 > [!NOTE]  
 > `projectId` and `teamId` are optional — fall back to `TP_PROJECT_ID` and `TP_TEAM_ID` from config  
 - `format_existing_user_story` — Re-format the description of an existing user story using the structured template (id, header object with asA/iWant/soThat, acceptanceCriteria array, scenarios array with Gherkin steps, optional title, definitions, examplesTable, edgeCases, references, notes)
@@ -102,6 +104,8 @@ Cards — Write
 - `create_feature` — Create a new feature (title, optional description, optional epicId, optional releaseId, optional projectId, optional teamId)  
 > [!NOTE]  
 > `projectId` and `teamId` are optional — fall back to `TP_PROJECT_ID` and `TP_TEAM_ID` from config  
+- `create_formatted_feature` — Create a new feature with a feature-level TDRE template in Header → Definitions → Scope & Boundaries → Non-Functional Requirements → Cross-Cutting Scenarios → Child Stories → Open Questions/Risks → References → Notes order (title, header object with businessBackground, nonFunctionalRequirements array with area/requirement/status/storyOrOwner, optional definitions, scope, crossCuttingScenarios, childStories, openQuestions, references, notes, optional epicId, releaseId, projectId, teamId)  
+- `update_feature` — Update a feature card with data provided from user input; pass only the fields to change (id, optional title, optional description, optional epicId, optional releaseId, optional projectId, optional teamId, optional entityStateId, optional tags, optional teamIterationId)  
 - `create_test_plan` — Create a test plan linked to a UserStory, Bug, or Feature (title, resourceId, optional resourceType, optional description/startDate/endDate)  
 > [!NOTE]  
 > requires `TP_PROJECT_ID`, 
@@ -141,6 +145,11 @@ User
 Time Tracking
 - `log_time` — Log time spent on a Task, User Story, or Bug (entityId, entityType: Task | UserStory | Bug, hours, optional description, optional date)
 - `get_my_time_logs` — Get recent time log entries submitted by the current user (optional take)
+
+Assignments
+- `assign_role` — Assign a user to a role (e.g. Business Analyst, Developer, QA Engineer) on a TP card (cardId, userId, roleId)
+- `assign_role_to_feature` — Assign a user to a role on all user stories in a feature in one call (featureId, userId, roleId)
+- `get_assignment_roles` — List all available assignment roles with their IDs
 
 Developer Tools
 - `get_commit_message` — Returns a formatted commit message string for a task or bug ID (id, type: task | bug)
@@ -242,3 +251,11 @@ npx vitest            # watch mode
 | `my_work_tools.test.ts` | `get_in_progress_tasks_and_bugs`, `list_my_user_stories`, `list_my_bugs`, `log_time`, `get_my_time_logs` |
 | `entity_tools.test.ts` | `get_feature_user_stories`, `get_user_story_bugs`, `get_card_current_status` |
 | `test_plan_tools.test.ts` | `get_test_plan_by_id`, `get_test_plan_test_cases_by_id`, `get_test_cases_by_id`, `get_test_plan_test_cases_with_steps_by_id`, `get_test_case_by_id`, `update_test_case_by_id`, `delete_test_case_by_id`, `add_test_case_step_by_id`, `update_test_case_step_by_id`, `delete_test_case_step_by_id` |
+| `creation_tools.test.ts` | `create_bug`, `create_user_story`, `create_feature`, `create_task`, `update_bug`, `update_user_story_state` |
+| `my_work_tools.test.ts` | `get_in_progress_tasks_and_bugs`, `list_my_user_stories`, `list_my_bugs`, `log_time`, `get_my_time_logs` |
+| `entity_tools.test.ts` | `get_feature_user_stories`, `get_user_story_bugs`, `get_card_current_status` |
+| `relation_tools.test.ts` | `get_card_relations`, `create_card_relation`, `delete_card_relation` |
+| `epic_tools.test.ts` | `create_epic`, `get_epic_content`, `update_epic`, `get_epic_features` |
+| `test_plan_tools.test.ts` | `get_test_plan_by_id`, `get_test_plan_test_cases_by_id`, `get_test_cases_by_id`, `get_test_plan_test_cases_with_steps_by_id`, `get_test_case_by_id`, `update_test_case_by_id`, `delete_test_case_by_id`, `add_test_case_step_by_id`, `update_test_case_step_by_id`, `delete_test_case_step_by_id` |
+| `test_case_tools.test.ts` | `get_test_case_by_id`, `update_test_case_by_id`, `add_test_case_step_by_id`, `update_test_case_step_by_id`, `delete_test_case_step_by_id` |
+| `workflow_tools.test.ts` | `get_processes`, `get_process_workflows`, `get_bug_workflows`, `get_user_story_workflows`, `get_relation_types`, `get_version` |

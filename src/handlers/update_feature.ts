@@ -1,26 +1,27 @@
 import type { TpClient } from '../tp.js'
-import type * as TP from '../types.js'
 
-export async function handleCreateUserStory(
+export async function handleUpdateFeature(
   tp: TpClient,
   params: {
-    title: string
+    id: string
+    title?: string
     description?: string
-    featureId?: string
+    epicId?: string
     releaseId?: string
     projectId?: string
     teamId?: string
+    entityStateId?: string
     tags?: string
     teamIterationId?: string
   },
 ) {
-  const response = await tp.createUserStory<TP.UserStory>(params)
+  const response = await tp.updateFeature(params)
 
   if (!response) {
     return {
       content: [{
         type: 'text' as const,
-        text: `Failed to create user story "${params.title}"\n JSON: ${JSON.stringify(response, null, 2)}`
+        text: `Failed to update feature id: ${params.id}\n JSON: ${JSON.stringify(response, null, 2)}`
       }],
     }
   }
