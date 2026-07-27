@@ -1165,7 +1165,7 @@ server.registerTool(
         .describe('Optional description of the test plan scope or goals'),
       parentTestPlanId: z.string()
         .min(5)
-        .max(6)
+        .max(9)
         .optional()
         .describe('Optional parent test plan ID to create this test plan as a sub plan')
     },
@@ -1202,7 +1202,7 @@ server.registerTool(
     inputSchema: {
       id: z.string()
         .min(5)
-        .max(6)
+        .max(9)
         .describe('Test plan ID (e.g. 145789)'),
     },
   },
@@ -1217,7 +1217,7 @@ server.registerTool(
     inputSchema: {
       id: z.string()
         .min(5)
-        .max(6)
+        .max(9)
         .describe('Test plan ID (e.g. 145789)'),
     },
   },
@@ -1232,7 +1232,7 @@ server.registerTool(
     inputSchema: {
       id: z.string()
         .min(5)
-        .max(6)
+        .max(9)
         .describe('Test plan ID (e.g. 145789)'),
     },
   },
@@ -1247,7 +1247,7 @@ server.registerTool(
     inputSchema: {
       id: z.string()
         .min(5)
-        .max(6)
+        .max(9)
         .describe('Test plan ID (e.g. 145789)'),
     },
   },
@@ -1262,7 +1262,7 @@ server.registerTool(
     inputSchema: {
       id: z.string()
         .min(5)
-        .max(6)
+        .max(9)
         .describe('Test case ID (e.g. 145789)'),
     },
   },
@@ -1277,7 +1277,7 @@ server.registerTool(
     inputSchema: {
       id: z.string()
         .min(5)
-        .max(6)
+        .max(9)
         .describe('Test case ID (e.g. 145789)'),
       name: z.string()
         .optional()
@@ -1298,7 +1298,7 @@ server.registerTool(
     inputSchema: {
       id: z.string()
         .min(5)
-        .max(6)
+        .max(9)
         .describe('Test case ID (e.g. 145789)'),
     },
   },
@@ -1313,7 +1313,7 @@ server.registerTool(
     inputSchema: {
       testCaseId: z.string()
         .min(5)
-        .max(6)
+        .max(9)
         .describe('Test case ID to append the step to (e.g. 145789)'),
       description: z.string()
         .describe('Step action text'),
@@ -1332,7 +1332,7 @@ server.registerTool(
     inputSchema: {
       id: z.string()
         .min(5)
-        .max(6)
+        .max(9)
         .describe('Test step ID (e.g. 145789)'),
       description: z.string()
         .optional()
@@ -1353,7 +1353,7 @@ server.registerTool(
     inputSchema: {
       id: z.string()
         .min(5)
-        .max(6)
+        .max(9)
         .describe('Test step ID (e.g. 145789)'),
     },
   },
@@ -2147,127 +2147,10 @@ server.registerTool(
   async () => handleGetVersion(version)
 )
 
-server.registerTool(
-  'get_test_plan_by_id',
-  {
-    title: 'Get test plan by ID',
-    description: 'Get a Targetprocess Test Plan by its ID, including name, plain-text description, state, and linked card.',
-    inputSchema: {
-      id: z.string()
-        .min(5)
-        .max(9)
-        .describe('Test plan ID (e.g. 145789)'),
-    },
-  }, async ({ id }) => handleGetTestPlanById(tp, id));
-
-server.registerTool(
-  'get_test_plan_test_cases_by_id',
-  {
-    title: 'Get test plan test cases by ID',
-    description: 'Get test cases belonging to a Targetprocess Test Plan by plan ID, including cases in nested child test plans/containers. Returns id, name, plain-text description, and containing test plan metadata (no steps).',
-    inputSchema: {
-      id: z.string()
-        .min(5)
-        .max(9)
-        .describe('Test plan ID (e.g. 145789)'),
-    },
-  }, async ({ id }) => handleGetTestPlanTestCasesById(tp, id));
-
-server.registerTool(
-  'get_test_plan_test_cases_with_steps_by_id',
-  {
-    title: 'Get test plan test cases with steps by ID',
-    description: 'Get test cases belonging to a Targetprocess Test Plan by plan ID, including nested child test plans/containers and each test case steps.',
-    inputSchema: {
-      id: z.string()
-        .min(5)
-        .max(9)
-        .describe('Test plan ID (e.g. 145789)'),
-    },
-  },
-  async ({ id }) => handleGetTestPlanTestCasesWithStepsById(tp, id)
-);
-
-server.registerTool(
-  'get_test_case_by_id',
-  {
-    title: 'Get test case by ID',
-    description: 'Get a single Targetprocess Test Case by its ID, including plain-text description and its steps.',
-    inputSchema: {
-      id: z.string()
-        .min(5)
-        .max(9)
-        .describe('Test case ID (e.g. 145789)'),
-    },
-  },
-  async ({ id }) => handleGetTestCaseById(tp, id));
-
-
-server.registerTool('update_test_case_by_id', {
-  title: 'Update test case by ID',
-  description: 'Update a Targetprocess Test Case by its ID. Supports name and description only.',
-  inputSchema: {
-    id: z.string()
-      .min(5)
-      .max(9)
-      .describe('Test case ID (e.g. 145789)'),
-    name: z.string()
-      .optional()
-      .describe('Updated test case name'),
-    description: z.string()
-      .optional()
-      .describe('Updated test case description (format as HTML or plain text)'),
-  },
-}, async ({ id, name, description }) => handleUpdateTestCaseById(tp, { id, name, description }));
-
-server.registerTool('add_test_case_step_by_id', {
-  title: 'Add test case step by test case ID',
-  description: 'Add a new step to a Targetprocess Test Case. Despite tool name consistency, this takes testCaseId, not a step ID.',
-  inputSchema: {
-    testCaseId: z.string()
-      .min(5)
-      .max(9)
-      .describe('Test case ID to append the step to (e.g. 145789)'),
-    description: z.string()
-      .describe('Step action text'),
-    result: z.string()
-      .describe('Expected result for this step'),
-  },
-}, async ({ testCaseId, description, result }) => handleAddTestCaseStepById(tp, { testCaseId, description, result }));
-
-
-server.registerTool('update_test_case_step_by_id', {
-  title: 'Update test case step by ID',
-  description: 'Update a Targetprocess Test Step by its ID. Supports description and result only.',
-  inputSchema: {
-    id: z.string()
-      .min(5)
-      .max(9)
-      .describe('Test step ID (e.g. 145789)'),
-    description: z.string()
-      .optional()
-      .describe('Updated step action text'),
-    result: z.string()
-      .optional()
-      .describe('Updated expected result for this step'),
-  },
-}, async ({ id, description, result }) => handleUpdateTestCaseStepById(tp, { id, description, result }));
-
-server.registerTool('delete_test_case_step_by_id', {
-  title: 'Delete test case step by ID',
-  description: 'Delete a Targetprocess Test Step by its ID.',
-  inputSchema: {
-    id: z.string()
-      .min(5)
-      .max(9)
-      .describe('Test step ID (e.g. 145789)'),
-  },
-}, async ({ id }) => handleDeleteTestCaseStepById(tp, id));
-
 async function main() {
   const transport = new StdioServerTransport();
   await server.connect(transport);
-  console.error("Weather MCP Server running on stdio");
+  console.error("Targetprocess MCP Server running on stdio");
 }
 
 main().catch((error) => {
