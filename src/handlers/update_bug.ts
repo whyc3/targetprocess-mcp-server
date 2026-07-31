@@ -1,4 +1,5 @@
 import type { TpClient } from '../tp.js'
+import { validateTagMutation } from '../tags.js'
 
 export async function handleUpdateBug(
   tp: TpClient,
@@ -11,9 +12,18 @@ export async function handleUpdateBug(
     teamId?: string
     entityStateId?: string
     tags?: string
+    addTags?: string
+    removeTags?: string
     teamIterationId?: string
   },
 ) {
+  const validationError = validateTagMutation(params)
+  if (validationError) {
+    return {
+      content: [{ type: 'text' as const, text: validationError }],
+    }
+  }
+
   const bugResponse = await tp.updateBug<any>(params)
 
   if (!bugResponse) {

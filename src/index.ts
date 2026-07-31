@@ -31,6 +31,7 @@ import { handleCreateUserStory } from "./handlers/create_user_story.js";
 import { handleCreateFormattedUserStory } from "./handlers/create_formatted_user_story.js";
 import { handleCreateFormattedFeature } from "./handlers/create_formatted_feature.js";
 import { handleUpdateFeature } from "./handlers/update_feature.js";
+import { handleUpdateUserStory } from "./handlers/update_user_story.js";
 import { handleCreateFeature } from "./handlers/create_feature.js";
 import { handleCreateEpic } from "./handlers/create_epic.js";
 import { handleGetTestPlanById } from "./handlers/get_test_plan_by_id.js";
@@ -69,6 +70,7 @@ import { handleGetBugWorkflows } from "./handlers/get_bug_workflows.js";
 import { handleGetUserStoryWorkflows } from "./handlers/get_user_story_workflows.js";
 import { handleGetRelationTypes } from "./handlers/get_relation_types.js";
 import { handleGetVersion } from "./handlers/get_version.js";
+import { handleUpdateCardTags } from "./handlers/update_card_tags.js";
 
 const server = new McpServer(
   {
@@ -569,14 +571,20 @@ server.registerTool(
         .describe('Optional Entity State ID — if user gave a state name, resolve it via "get_bug_workflows" first; defaults to "Done"'),
       tags: z.string()
         .optional()
-        .describe('Optional comma-separated tags to apply, e.g. "regression, mobile"'),
+        .describe('Optional comma- or semicolon-separated tags to replace the full tag list, e.g. "regression, mobile"'),
+      addTags: z.string()
+        .optional()
+        .describe('Optional comma- or semicolon-separated tags to add without replacing existing tags'),
+      removeTags: z.string()
+        .optional()
+        .describe('Optional comma- or semicolon-separated tags to remove without replacing remaining tags'),
       teamIterationId: z.string()
         .optional()
         .describe('Optional Team Iteration (sprint) ID — resolve it via "get_team_iterations" first'),
     },
   },
-  async ({ id, title, bugContent, origin, projectId, teamId, entityStateId, tags, teamIterationId }) =>
-    handleUpdateBug(tp, { id, title, bugContent, origin, projectId, teamId, entityStateId, tags, teamIterationId })
+  async ({ id, title, bugContent, origin, projectId, teamId, entityStateId, tags, addTags, removeTags, teamIterationId }) =>
+    handleUpdateBug(tp, { id, title, bugContent, origin, projectId, teamId, entityStateId, tags, addTags, removeTags, teamIterationId })
 )
 
 server.registerTool(
@@ -640,31 +648,20 @@ server.registerTool(
         .describe('Optional Feature ID — moves this user story to the specified feature'),
       tags: z.string()
         .optional()
-        .describe('Optional comma-separated tags to apply, e.g. "regression, mobile"'),
+        .describe('Optional comma- or semicolon-separated tags to replace the full tag list, e.g. "regression, mobile"'),
+      addTags: z.string()
+        .optional()
+        .describe('Optional comma- or semicolon-separated tags to add without replacing existing tags'),
+      removeTags: z.string()
+        .optional()
+        .describe('Optional comma- or semicolon-separated tags to remove without replacing remaining tags'),
       teamIterationId: z.string()
         .optional()
         .describe('Optional Team Iteration (sprint) ID — resolve it via "get_team_iterations" first'),
     },
   },
-  async ({ id, title, description, projectId, teamId, entityStateId, featureId, tags, teamIterationId }) => {
-    const response = await tp.updateUserStory<any>({ id, title, description, projectId, teamId, entityStateId, featureId, tags, teamIterationId });
-
-    if (!response) {
-      return {
-        content: [{
-          type: 'text',
-          text: `Failed to update user story id: ${id}\n JSON: ${JSON.stringify(response, null, 2)}`
-        }]
-      };
-    }
-
-    return {
-      content: [{
-        type: 'text',
-        text: JSON.stringify(response)
-      }],
-    };
-  }
+  async ({ id, title, description, projectId, teamId, entityStateId, featureId, tags, addTags, removeTags, teamIterationId }) =>
+    handleUpdateUserStory(tp, { id, title, description, projectId, teamId, entityStateId, featureId, tags, addTags, removeTags, teamIterationId })
 )
 
 server.registerTool(
@@ -1049,14 +1046,20 @@ server.registerTool(
         .describe('Optional Entity State ID — ask the user for the exact ID if given a state name; no dedicated feature-workflow lookup tool exists yet'),
       tags: z.string()
         .optional()
-        .describe('Optional comma-separated tags to apply, e.g. "regression, mobile"'),
+        .describe('Optional comma- or semicolon-separated tags to replace the full tag list, e.g. "regression, mobile"'),
+      addTags: z.string()
+        .optional()
+        .describe('Optional comma- or semicolon-separated tags to add without replacing existing tags'),
+      removeTags: z.string()
+        .optional()
+        .describe('Optional comma- or semicolon-separated tags to remove without replacing remaining tags'),
       teamIterationId: z.string()
         .optional()
         .describe('Optional Team Iteration (sprint) ID — resolve it via "get_team_iterations" first'),
     },
   },
-  async ({ id, title, description, epicId, releaseId, projectId, teamId, entityStateId, tags, teamIterationId }) =>
-    handleUpdateFeature(tp, { id, title, description, epicId, releaseId, projectId, teamId, entityStateId, tags, teamIterationId })
+  async ({ id, title, description, epicId, releaseId, projectId, teamId, entityStateId, tags, addTags, removeTags, teamIterationId }) =>
+    handleUpdateFeature(tp, { id, title, description, epicId, releaseId, projectId, teamId, entityStateId, tags, addTags, removeTags, teamIterationId })
 )
 
 server.registerTool(
@@ -1123,10 +1126,45 @@ server.registerTool(
       projectId: z.string()
         .optional()
         .describe('Optional Project ID'),
+      tags: z.string()
+        .optional()
+        .describe('Optional comma- or semicolon-separated tags to replace the full tag list'),
+      addTags: z.string()
+        .optional()
+        .describe('Optional comma- or semicolon-separated tags to add without replacing existing tags'),
+      removeTags: z.string()
+        .optional()
+        .describe('Optional comma- or semicolon-separated tags to remove without replacing remaining tags'),
     },
   },
-  async ({ id, title, description, releaseId, projectId }) =>
-    handleUpdateEpic(tp, { id, title, description, releaseId, projectId })
+  async ({ id, title, description, releaseId, projectId, tags, addTags, removeTags }) =>
+    handleUpdateEpic(tp, { id, title, description, releaseId, projectId, tags, addTags, removeTags })
+)
+
+server.registerTool(
+  'update_card_tags',
+  {
+    title: 'Update tags on multiple cards',
+    description: 'Add, remove, or replace tags on multiple Targetprocess cards of the same entity type using explicit card IDs.',
+    inputSchema: {
+      entityType: z.enum(['Bug', 'UserStory', 'Feature', 'Epic'])
+        .describe('Entity type for all provided card IDs'),
+      ids: z.array(z.string().min(5).max(9))
+        .min(1)
+        .describe('Explicit list of card IDs to update'),
+      tags: z.string()
+        .optional()
+        .describe('Optional comma- or semicolon-separated tags to replace the full tag list on every card'),
+      addTags: z.string()
+        .optional()
+        .describe('Optional comma- or semicolon-separated tags to add on every card'),
+      removeTags: z.string()
+        .optional()
+        .describe('Optional comma- or semicolon-separated tags to remove from every card'),
+    },
+  },
+  async ({ entityType, ids, tags, addTags, removeTags }) =>
+    handleUpdateCardTags(tp, { entityType, ids, tags, addTags, removeTags })
 )
 
 server.registerTool(

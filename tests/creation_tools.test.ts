@@ -4,6 +4,7 @@ import { handleCreateUserStory } from '../src/handlers/create_user_story.js'
 import { handleCreateFeature } from '../src/handlers/create_feature.js'
 import { handleCreateTask } from '../src/handlers/create_task.js'
 import { handleUpdateBug } from '../src/handlers/update_bug.js'
+import { handleUpdateUserStory } from '../src/handlers/update_user_story.js'
 import { handleUpdateUserStorySubState } from '../src/handlers/update_user_story_sub_state.js'
 import type { TpClient } from '../src/tp.js'
 
@@ -13,6 +14,7 @@ const mockTp = {
   createFeature: vi.fn(),
   createTask: vi.fn(),
   updateBug: vi.fn(),
+  updateUserStory: vi.fn(),
   updateUserStorySubState: vi.fn(),
 } as unknown as TpClient
 
@@ -183,6 +185,48 @@ describe('handleUpdateBug', () => {
     await handleUpdateBug(mockTp, { id: '100', tags: 'regression, mobile', teamIterationId: '789' })
 
     expect(mockTp.updateBug).toHaveBeenCalledWith({ id: '100', tags: 'regression, mobile', teamIterationId: '789' })
+  })
+
+  it('passes addTags and removeTags to updateBug', async () => {
+    vi.mocked(mockTp.updateBug).mockResolvedValue({ Id: 1 } as any)
+
+    await handleUpdateBug(mockTp, { id: '100', addTags: 'api', removeTags: 'legacy' })
+
+    expect(mockTp.updateBug).toHaveBeenCalledWith({ id: '100', addTags: 'api', removeTags: 'legacy' })
+  })
+
+  it('rejects mixing tags with addTags or removeTags', async () => {
+    const result = await handleUpdateBug(mockTp, { id: '100', tags: 'api', addTags: 'mobile' })
+
+    expect(result.content[0].text).toContain('Use either "tags" or "addTags"/"removeTags", not both.')
+    expect(mockTp.updateBug).not.toHaveBeenCalled()
+  })
+})
+
+describe('handleUpdateUserStory', () => {
+  it('returns updated user story on success', async () => {
+    vi.mocked(mockTp.updateUserStory).mockResolvedValue({ Id: 145789, Name: 'Updated story' } as any)
+
+    const result = await handleUpdateUserStory(mockTp, { id: '145789', title: 'Updated story' })
+    const parsed = JSON.parse(result.content[0].text)
+
+    expect(parsed.Id).toBe(145789)
+    expect(mockTp.updateUserStory).toHaveBeenCalledWith({ id: '145789', title: 'Updated story' })
+  })
+
+  it('passes addTags and removeTags to updateUserStory', async () => {
+    vi.mocked(mockTp.updateUserStory).mockResolvedValue({ Id: 145789 } as any)
+
+    await handleUpdateUserStory(mockTp, { id: '145789', addTags: 'api', removeTags: 'legacy' })
+
+    expect(mockTp.updateUserStory).toHaveBeenCalledWith({ id: '145789', addTags: 'api', removeTags: 'legacy' })
+  })
+
+  it('rejects invalid tag mutation input', async () => {
+    const result = await handleUpdateUserStory(mockTp, { id: '145789', tags: 'api', removeTags: 'legacy' })
+
+    expect(result.content[0].text).toContain('Use either "tags" or "addTags"/"removeTags", not both.')
+    expect(mockTp.updateUserStory).not.toHaveBeenCalled()
   })
 })
 

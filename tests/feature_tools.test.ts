@@ -70,4 +70,19 @@ describe('handleUpdateFeature', () => {
 
     expect(mockTp.updateFeature).toHaveBeenCalledWith({ id: '145636', epicId: '148813', tags: 'regression, mobile', teamIterationId: '789' })
   })
+
+  it('passes addTags and removeTags to updateFeature', async () => {
+    vi.mocked(mockTp.updateFeature).mockResolvedValue({ Id: 145636 } as any)
+
+    await handleUpdateFeature(mockTp, { id: '145636', addTags: 'api', removeTags: 'legacy' })
+
+    expect(mockTp.updateFeature).toHaveBeenCalledWith({ id: '145636', addTags: 'api', removeTags: 'legacy' })
+  })
+
+  it('rejects invalid tag mutation input', async () => {
+    const result = await handleUpdateFeature(mockTp, { id: '145636', tags: 'api', addTags: 'mobile' })
+
+    expect(result.content[0].text).toContain('Use either "tags" or "addTags"/"removeTags", not both.')
+    expect(mockTp.updateFeature).not.toHaveBeenCalled()
+  })
 })

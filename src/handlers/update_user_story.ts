@@ -1,17 +1,16 @@
 import type { TpClient } from '../tp.js'
 import { validateTagMutation } from '../tags.js'
 
-export async function handleUpdateFeature(
+export async function handleUpdateUserStory(
   tp: TpClient,
   params: {
     id: string
     title?: string
     description?: string
-    epicId?: string
-    releaseId?: string
     projectId?: string
     teamId?: string
     entityStateId?: string
+    featureId?: string
     tags?: string
     addTags?: string
     removeTags?: string
@@ -25,18 +24,21 @@ export async function handleUpdateFeature(
     }
   }
 
-  const response = await tp.updateFeature(params)
+  const response = await tp.updateUserStory<any>(params)
 
   if (!response) {
     return {
       content: [{
         type: 'text' as const,
-        text: `Failed to update feature id: ${params.id}\n JSON: ${JSON.stringify(response, null, 2)}`
-      }],
+        text: `Failed to update user story id: ${params.id}\n JSON: ${JSON.stringify(response, null, 2)}`
+      }]
     }
   }
 
   return {
-    content: [{ type: 'text' as const, text: JSON.stringify(response) }],
+    content: [{
+      type: 'text' as const,
+      text: JSON.stringify(response)
+    }],
   }
 }

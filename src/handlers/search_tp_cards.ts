@@ -1,6 +1,7 @@
 import { JSDOM } from 'jsdom'
 import type { TpClient } from '../tp.js'
 import { config } from '../config.js'
+import { parseTags } from '../tags.js'
 import type * as TP from '../types.js'
 
 type SearchableEntity = TP.General & {
@@ -49,17 +50,6 @@ function stripHtml(value: string | undefined): string {
 
 function normalizeForMatch(value: string): string {
   return collapseWhitespace(value).toLowerCase()
-}
-
-function parseTags(value: string | undefined): string[] {
-  if (!value) {
-    return []
-  }
-
-  return value
-    .split(/[;,]/)
-    .map((tag) => tag.trim())
-    .filter((tag) => tag.length > 0)
 }
 
 function buildItemKey(item: SearchableEntity): string {

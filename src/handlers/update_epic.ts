@@ -1,4 +1,5 @@
 import type { TpClient } from '../tp.js'
+import { validateTagMutation } from '../tags.js'
 
 export async function handleUpdateEpic(
   tp: TpClient,
@@ -8,8 +9,18 @@ export async function handleUpdateEpic(
     description?: string
     releaseId?: string
     projectId?: string
+    tags?: string
+    addTags?: string
+    removeTags?: string
   },
 ) {
+  const validationError = validateTagMutation(params)
+  if (validationError) {
+    return {
+      content: [{ type: 'text' as const, text: validationError }],
+    }
+  }
+
   const response = await tp.updateEpic(params)
 
   if (!response) {

@@ -15,11 +15,22 @@ import {
   TestCase,
 } from "./types.js";
 import { config } from "./config.js";
+import { applyTagMutation, hasTagMutation, type TagMutationParams, type TaggableEntityType } from "./tags.js";
 
 type TestPlanNode = {
   id: string
   numericId: number
   name?: string
+}
+
+type BulkTagUpdateSuccess<T> = {
+  id: string
+  response: T
+}
+
+type BulkTagUpdateFailure = {
+  id: string
+  reason: string
 }
 
 export class TpClient {
@@ -229,6 +240,43 @@ export class TpClient {
     return clauses.join(" and ")
   }
 
+  private async resolveUpdatedTags(entityType: TaggableEntityType, id: string, params: TagMutationParams): Promise<string | undefined | null> {
+    if (!hasTagMutation(params)) {
+      return undefined
+    }
+
+    if (params.tags !== undefined) {
+      return applyTagMutation(undefined, params)
+    }
+
+    const currentTags = await this.getEntityTags(entityType, id)
+    if (currentTags === null) {
+      return null
+    }
+
+    return applyTagMutation(currentTags, params)
+  }
+
+  private async getEntityTags(entityType: TaggableEntityType, id: string): Promise<string | undefined | null> {
+    if (entityType === "UserStory") {
+      const entity = await this.getUserStory<{ Tags?: string }>(id)
+      return entity ? entity.Tags : null
+    }
+
+    if (entityType === "Bug") {
+      const entity = await this.getBug<{ Tags?: string }>(id)
+      return entity ? entity.Tags : null
+    }
+
+    if (entityType === "Feature") {
+      const entity = await this.getFeature<{ Tags?: string }>(id)
+      return entity ? entity.Tags : null
+    }
+
+    const entity = await this.getEpic<{ Tags?: string }>(id)
+    return entity ? entity.Tags : null
+  }
+
   async getUserStory<T>(userStoryId: string): Promise<T> {
     const response = await this.get<T>({
       pathParam: ["userStories", userStoryId],
@@ -320,8 +368,10 @@ export class TpClient {
     entityStateId,
     featureId,
     tags,
+    addTags,
+    removeTags,
     teamIterationId
-  }: { id: string, title?: string, description?: string, projectId?: string, teamId?: string, teamAssignmentId?: string, entityStateId?: string, featureId?: string, tags?: string, teamIterationId?: string }): Promise<T> {
+  }: { id: string, title?: string, description?: string, projectId?: string, teamId?: string, teamAssignmentId?: string, entityStateId?: string, featureId?: string, tags?: string, addTags?: string, removeTags?: string, teamIterationId?: string }): Promise<T> {
     const userStory: Record<string, any> = { "Id": id }
 
     if (title) userStory["Name"] = title
@@ -330,7 +380,9 @@ export class TpClient {
     if (teamId) userStory["assignedTeams"] = [{ "team": { "id": teamId } }]
     if (entityStateId) userStory["EntityState"] = { "Id": entityStateId }
     if (featureId) userStory["Feature"] = { "Id": featureId }
-    if (tags) userStory["Tags"] = tags
+    const resolvedTags = await this.resolveUpdatedTags("UserStory", id, { tags, addTags, removeTags })
+    if (resolvedTags === null) return null as T
+    if (resolvedTags !== undefined) userStory["Tags"] = resolvedTags
     if (teamIterationId) userStory["TeamIteration"] = { "Id": teamIterationId }
 
     return this.post<any, T>({
@@ -339,7 +391,7 @@ export class TpClient {
     }, userStory) as T
   }
 
-  async updateBug<T>({ id, title, bugContent, origin, projectId, teamId, entityStateId, tags, teamIterationId }: { id: string, title?: string, bugContent?: string, origin?: string, projectId?: string, teamId?: string, entityStateId?: string, tags?: string, teamIterationId?: string }): Promise<T> {
+  async updateBug<T>({ id, title, bugContent, origin, projectId, teamId, entityStateId, tags, addTags, removeTags, teamIterationId }: { id: string, title?: string, bugContent?: string, origin?: string, projectId?: string, teamId?: string, entityStateId?: string, tags?: string, addTags?: string, removeTags?: string, teamIterationId?: string }): Promise<T> {
     const bug: Record<string, any> = { "Id": id }
 
     if (title) bug["Name"] = title
@@ -356,7 +408,9 @@ export class TpClient {
       }
     }]
     if (entityStateId) bug["entityState"] = { "id": entityStateId }
-    if (tags) bug["Tags"] = tags
+    const resolvedTags = await this.resolveUpdatedTags("Bug", id, { tags, addTags, removeTags })
+    if (resolvedTags === null) return null as T
+    if (resolvedTags !== undefined) bug["Tags"] = resolvedTags
     if (teamIterationId) bug["TeamIteration"] = { "Id": teamIterationId }
 
     return this.post<any, T>({
@@ -432,12 +486,16 @@ export class TpClient {
     }) as T
   }
 
-  async updateEpic<T>({ id, title, description, releaseId, projectId }: { id: string, title?: string, description?: string, releaseId?: string, projectId?: string }): Promise<T> {
+  async updateEpic<T>({ id, title, description, releaseId, projectId, tags, addTags, removeTags }: { id: string, title?: string, description?: string, releaseId?: string, projectId?: string, tags?: string, addTags?: string, removeTags?: string }): Promise<T> {
     const epic: Record<string, any> = { "Id": id }
     if (title) epic["Name"] = title
     if (description) epic["Description"] = description
     if (projectId) epic["Project"] = { "Id": projectId }
     if (releaseId) epic["Release"] = { "Id": releaseId }
+
+    const resolvedTags = await this.resolveUpdatedTags("Epic", id, { tags, addTags, removeTags })
+    if (resolvedTags === null) return null as T
+    if (resolvedTags !== undefined) epic["Tags"] = resolvedTags
 
     return this.post<any, T>({
       pathParam: ["Epics"],
@@ -499,8 +557,10 @@ export class TpClient {
     teamId,
     entityStateId,
     tags,
+    addTags,
+    removeTags,
     teamIterationId
-  }: { id: string, title?: string, description?: string, epicId?: string, releaseId?: string, projectId?: string, teamId?: string, entityStateId?: string, tags?: string, teamIterationId?: string }): Promise<T> {
+  }: { id: string, title?: string, description?: string, epicId?: string, releaseId?: string, projectId?: string, teamId?: string, entityStateId?: string, tags?: string, addTags?: string, removeTags?: string, teamIterationId?: string }): Promise<T> {
     const feature: Record<string, any> = { "Id": id }
 
     if (title) feature["Name"] = title
@@ -510,13 +570,67 @@ export class TpClient {
     if (projectId) feature["Project"] = { "Id": projectId }
     if (teamId) feature["assignedTeams"] = [{ "team": { "id": teamId } }]
     if (entityStateId) feature["EntityState"] = { "Id": entityStateId }
-    if (tags) feature["Tags"] = tags
+    const resolvedTags = await this.resolveUpdatedTags("Feature", id, { tags, addTags, removeTags })
+    if (resolvedTags === null) return null as T
+    if (resolvedTags !== undefined) feature["Tags"] = resolvedTags
     if (teamIterationId) feature["TeamIteration"] = { "Id": teamIterationId }
 
     return this.post<any, T>({
       pathParam: ["Features"],
       param: { "format": "json" },
     }, feature) as T
+  }
+
+  private updateEntityTagsByType<T>(entityType: TaggableEntityType, id: string, params: TagMutationParams): Promise<T> {
+    if (entityType === "UserStory") {
+      return this.updateUserStory<T>({ id, ...params })
+    }
+
+    if (entityType === "Bug") {
+      return this.updateBug<T>({ id, ...params })
+    }
+
+    if (entityType === "Feature") {
+      return this.updateFeature<T>({ id, ...params })
+    }
+
+    return this.updateEpic<T>({ id, ...params })
+  }
+
+  async updateCardTags<T>({ entityType, ids, tags, addTags, removeTags }: { entityType: TaggableEntityType, ids: string[], tags?: string, addTags?: string, removeTags?: string }): Promise<{ succeeded: BulkTagUpdateSuccess<T>[]; failed: BulkTagUpdateFailure[] }> {
+    const results = await Promise.all(ids.map(async (id): Promise<
+      | { ok: true; id: string; response: T }
+      | { ok: false; id: string; reason: string }
+    > => {
+      try {
+        const response = await this.updateEntityTagsByType<T>(entityType, id, { tags, addTags, removeTags })
+        if (!response) {
+          return { ok: false, id, reason: "Update failed" }
+        }
+
+        return { ok: true, id, response }
+      } catch (error) {
+        return {
+          ok: false,
+          id,
+          reason: error instanceof Error ? error.message : String(error),
+        }
+      }
+    }))
+
+    const succeeded: BulkTagUpdateSuccess<T>[] = []
+    const failed: BulkTagUpdateFailure[] = []
+
+    for (const result of results) {
+      if (result.ok) {
+        succeeded.push({ id: result.id, response: result.response })
+        continue
+      }
+
+      failed.push({ id: result.id, reason: result.reason })
+    }
+
+    return { succeeded, failed }
   }
 
   async createBugBasedOnUserStory<T>(title: string, userStoryId: string, bugContent: string): Promise<T> {

@@ -86,6 +86,21 @@ describe('handleUpdateEpic', () => {
 
     expect(result.content[0].text).toContain('Failed to update epic id: 148813')
   })
+
+  it('passes addTags and removeTags to updateEpic', async () => {
+    vi.mocked(mockTp.updateEpic).mockResolvedValue({ Id: 148813 } as any)
+
+    await handleUpdateEpic(mockTp, { id: '148813', addTags: 'api', removeTags: 'legacy' })
+
+    expect(mockTp.updateEpic).toHaveBeenCalledWith({ id: '148813', addTags: 'api', removeTags: 'legacy' })
+  })
+
+  it('rejects invalid tag mutation input', async () => {
+    const result = await handleUpdateEpic(mockTp, { id: '148813', tags: 'api', removeTags: 'legacy' })
+
+    expect(result.content[0].text).toContain('Use either "tags" or "addTags"/"removeTags", not both.')
+    expect(mockTp.updateEpic).not.toHaveBeenCalled()
+  })
 })
 
 describe('handleGetEpicFeatures', () => {
