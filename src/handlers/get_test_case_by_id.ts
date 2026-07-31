@@ -1,5 +1,6 @@
 import { JSDOM } from 'jsdom'
 import type { TpClient } from '../tp.js'
+import { parseTags } from '../tags.js'
 import type * as TP from '../types.js'
 
 export async function handleGetTestCaseById(tp: TpClient, id: string) {
@@ -30,6 +31,7 @@ export async function handleGetTestCaseById(tp: TpClient, id: string) {
     id: testCase.Id,
     name: testCase.Name,
     description,
+    tags: parseTags(testCase.Tags),
     testPlan: testCase.TestPlans?.Items?.[0]?.Name ?? testCase.LinkedTestPlan?.Name,
     steps: testCaseSteps?.Items?.map((step) => ({
       description: step.Description,

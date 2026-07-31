@@ -1147,7 +1147,7 @@ server.registerTool(
     title: 'Update tags on multiple cards',
     description: 'Add, remove, or replace tags on multiple Targetprocess cards of the same entity type using explicit card IDs.',
     inputSchema: {
-      entityType: z.enum(['Bug', 'UserStory', 'Feature', 'Epic'])
+      entityType: z.enum(['Bug', 'UserStory', 'Feature', 'Epic', 'TestCase'])
         .describe('Entity type for all provided card IDs'),
       ids: z.array(z.string().min(5).max(9))
         .min(1)
@@ -1311,7 +1311,7 @@ server.registerTool(
   'update_test_case_by_id',
   {
     title: 'Update test case by ID',
-    description: 'Update a Targetprocess Test Case by its ID. Supports name and description only.',
+    description: 'Update a Targetprocess Test Case by its ID. Supports name, description, and tag mutation.',
     inputSchema: {
       id: z.string()
         .min(5)
@@ -1323,9 +1323,18 @@ server.registerTool(
       description: z.string()
         .optional()
         .describe('Updated test case description (format as HTML or plain text)'),
+      tags: z.string()
+        .optional()
+        .describe('Optional comma- or semicolon-separated tags to replace the full tag list'),
+      addTags: z.string()
+        .optional()
+        .describe('Optional comma- or semicolon-separated tags to add without replacing existing tags'),
+      removeTags: z.string()
+        .optional()
+        .describe('Optional comma- or semicolon-separated tags to remove without replacing remaining tags'),
     },
   },
-  async ({ id, name, description }) => handleUpdateTestCaseById(tp, { id, name, description })
+  async ({ id, name, description, tags, addTags, removeTags }) => handleUpdateTestCaseById(tp, { id, name, description, tags, addTags, removeTags })
 );
 
 server.registerTool(

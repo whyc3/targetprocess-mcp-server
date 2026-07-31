@@ -4,7 +4,7 @@ export type TagMutationParams = {
   removeTags?: string
 }
 
-export type TaggableEntityType = 'Bug' | 'UserStory' | 'Feature' | 'Epic'
+export type TaggableEntityType = 'Bug' | 'UserStory' | 'Feature' | 'Epic' | 'TestCase'
 
 export function parseTags(value: string | undefined): string[] {
   if (!value) {

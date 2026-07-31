@@ -26,6 +26,7 @@ describe('handleGetTestCaseById', () => {
       Id: 145789,
       Name: 'TC Login',
       Description: '<p>Preconditions</p>',
+      Tags: 'automated, smoke',
       LinkedTestPlan: { Name: 'Login Test Plan' },
     } as any)
     vi.mocked(mockTp.getTestCaseSteps).mockResolvedValue({
@@ -37,6 +38,7 @@ describe('handleGetTestCaseById', () => {
 
     expect(parsed.id).toBe(145789)
     expect(parsed.description).toBe('Preconditions')
+    expect(parsed.tags).toEqual(['automated', 'smoke'])
     expect(parsed.testPlan).toBe('Login Test Plan')
     expect(parsed.steps).toEqual([{ description: 'Open login page', result: 'Page loads', runOrder: 1 }])
   })
@@ -65,6 +67,21 @@ describe('handleUpdateTestCaseById', () => {
     const result = await handleUpdateTestCaseById(mockTp, { id: '145789' })
 
     expect(result.content[0].text).toContain('Nothing to update for test case id: 145789')
+    expect(mockTp.updateTestCase).not.toHaveBeenCalled()
+  })
+
+  it('passes addTags and removeTags to updateTestCase', async () => {
+    vi.mocked(mockTp.updateTestCase).mockResolvedValue({ Id: 145789 } as any)
+
+    await handleUpdateTestCaseById(mockTp, { id: '145789', addTags: 'automated', removeTags: 'manual' })
+
+    expect(mockTp.updateTestCase).toHaveBeenCalledWith({ id: '145789', addTags: 'automated', removeTags: 'manual' })
+  })
+
+  it('rejects invalid tag mutation input', async () => {
+    const result = await handleUpdateTestCaseById(mockTp, { id: '145789', tags: 'automated', addTags: 'smoke' })
+
+    expect(result.content[0].text).toContain('Use either "tags" or "addTags"/"removeTags", not both.')
     expect(mockTp.updateTestCase).not.toHaveBeenCalled()
   })
 

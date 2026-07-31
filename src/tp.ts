@@ -273,6 +273,11 @@ export class TpClient {
       return entity ? entity.Tags : null
     }
 
+    if (entityType === "TestCase") {
+      const entity = await this.getTestCase<{ Tags?: string }>(id)
+      return entity ? entity.Tags : null
+    }
+
     const entity = await this.getEpic<{ Tags?: string }>(id)
     return entity ? entity.Tags : null
   }
@@ -592,6 +597,10 @@ export class TpClient {
 
     if (entityType === "Feature") {
       return this.updateFeature<T>({ id, ...params })
+    }
+
+    if (entityType === "TestCase") {
+      return this.updateTestCase<T>({ id, ...params })
     }
 
     return this.updateEpic<T>({ id, ...params })
@@ -1103,11 +1112,14 @@ export class TpClient {
     }) as T
   }
 
-  async updateTestCase<T>({ id, name, description }: { id: string, name?: string, description?: string }): Promise<T> {
+  async updateTestCase<T>({ id, name, description, tags, addTags, removeTags }: { id: string, name?: string, description?: string, tags?: string, addTags?: string, removeTags?: string }): Promise<T> {
     const testCase: Record<string, any> = { "Id": id }
 
     if (name !== undefined) testCase["Name"] = name
     if (description !== undefined) testCase["Description"] = description
+    const resolvedTags = await this.resolveUpdatedTags("TestCase", id, { tags, addTags, removeTags })
+    if (resolvedTags === null) return null as T
+    if (resolvedTags !== undefined) testCase["Tags"] = resolvedTags
 
     return this.post<any, T>({
       pathParam: ["testCases"],

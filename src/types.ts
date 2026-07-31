@@ -630,6 +630,7 @@ export interface TestCase {
   Description: string
   CreateDate: string
   ModifyDate: string
+  Tags: string
   Project: Project
   LinkedTestPlan: TestPlan | null
   TestPlans?: {

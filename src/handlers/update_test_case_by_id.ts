@@ -1,4 +1,5 @@
 import type { TpClient } from '../tp.js'
+import { hasTagMutation, validateTagMutation } from '../tags.js'
 
 export async function handleUpdateTestCaseById(
   tp: TpClient,
@@ -6,9 +7,19 @@ export async function handleUpdateTestCaseById(
     id: string
     name?: string
     description?: string
+    tags?: string
+    addTags?: string
+    removeTags?: string
   },
 ) {
-  if (params.name === undefined && params.description === undefined) {
+  const validationError = validateTagMutation(params)
+  if (validationError) {
+    return {
+      content: [{ type: 'text' as const, text: validationError }],
+    }
+  }
+
+  if (params.name === undefined && params.description === undefined && !hasTagMutation(params)) {
     return {
       content: [{
         type: 'text' as const,

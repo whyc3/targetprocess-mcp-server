@@ -59,6 +59,37 @@ describe('handleUpdateCardTags', () => {
 })
 
 describe('TpClient tag mutation helpers', () => {
+  it('merges addTags and removeTags before updating a test case', async () => {
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      const decodedUrl = decodeURIComponent(url)
+
+      if (decodedUrl.includes('/testCases/145789/')) {
+        return new Response(JSON.stringify({ Id: 145789, Tags: 'manual, legacy' }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        })
+      }
+
+      if (decodedUrl.includes('/testCases/?format=json&access_token=')) {
+        return new Response(JSON.stringify({ Id: 145789 }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        })
+      }
+
+      throw new Error(`Unexpected URL: ${decodedUrl}`)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const tp = new TpClient()
+    await tp.updateTestCase({ id: '145789', addTags: 'automated', removeTags: 'legacy' })
+
+    const [url, init] = fetchMock.mock.calls[1]
+    expect(decodeURIComponent(url)).toContain('/testCases/?format=json&access_token=')
+    expect(init?.method).toBe('POST')
+    expect(init?.body).toBe(JSON.stringify({ Id: '145789', Tags: 'manual, automated' }))
+  })
+
   it('merges addTags and removeTags before updating a user story', async () => {
     const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
       const decodedUrl = decodeURIComponent(url)
@@ -115,9 +146,9 @@ describe('TpClient tag mutation helpers', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1)
   })
 
-  it('reports per-id success and failure for bulk tag updates', async () => {
+  it('reports per-id success and failure for bulk test-case tag updates', async () => {
     const tp = new TpClient()
-    vi.spyOn(tp, 'updateBug').mockImplementation(async ({ id }) => {
+    vi.spyOn(tp, 'updateTestCase').mockImplementation(async ({ id }) => {
       if (id === '145790') {
         return null as any
       }
@@ -126,9 +157,9 @@ describe('TpClient tag mutation helpers', () => {
     })
 
     const result = await tp.updateCardTags({
-      entityType: 'Bug',
+      entityType: 'TestCase',
       ids: ['145789', '145790'],
-      addTags: 'api',
+      addTags: 'automated',
     })
 
     expect(result.succeeded).toEqual([{ id: '145789', response: { Id: '145789' } }])
