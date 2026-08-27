@@ -37,6 +37,9 @@ import { handleCreateEpic } from "./handlers/create_epic.js";
 import { handleGetTestPlanById } from "./handlers/get_test_plan_by_id.js";
 import { handleCreateNestedTestPlan } from "./handlers/create_nested_test_plan.js";
 import { handleMoveTestCasesToSubPlan } from "./handlers/move_test_cases_to_sub_plan.js";
+import { handleBatchMoveTestCasesToSubPlan } from "./handlers/batch_move_test_cases_to_sub_plan.js";
+import { handleGetTestCaseTestPlans } from "./handlers/get_test_case_test_plans.js";
+import { handleUnlinkTestCasesFromTestPlan } from "./handlers/unlink_test_cases_from_test_plan.js";
 import { handleGetTestPlanTestCasesById } from "./handlers/get_test_plan_test_cases_by_id.js";
 import { handleGetTestPlanTestCasesWithStepsById } from "./handlers/get_test_plan_test_cases_with_steps_by_id.js";
 import { handleGetTestCaseById } from "./handlers/get_test_case_by_id.js";
@@ -1341,6 +1344,55 @@ server.registerTool(
   },
   async ({ sourceTestPlanId, destinationTestPlanId, testCaseIds, dryRun }) =>
     handleMoveTestCasesToSubPlan(tp, { sourceTestPlanId, destinationTestPlanId, testCaseIds, dryRun }),
+)
+
+server.registerTool(
+  'batch_move_test_cases_to_sub_plan',
+  {
+    title: 'Batch move test cases into a sub plan',
+    description: 'Move explicitly selected test cases from a parent plan into one nested sub plan in bounded sequential batches. Each batch removes and verifies every source-plan membership before adding and verifying destination memberships. Stops immediately at the first incomplete batch; it never continues by copying memberships.',
+    inputSchema: {
+      sourceTestPlanId: z.string().min(5).max(9).describe('Current parent test plan ID'),
+      destinationTestPlanId: z.string().min(5).max(9).describe('Existing nested destination test plan ID'),
+      testCaseIds: z.array(z.string().min(5).max(9)).min(1).max(1000)
+        .describe('Explicit case IDs to move; each internal batch is at most 100 cases'),
+      batchSize: z.number().int().min(1).max(100).default(100).optional()
+        .describe('Cases processed per sequential batch, from 1 through 100'),
+      dryRun: z.boolean().default(true).optional()
+        .describe('Validate all work without changing Targetprocess. Defaults to true.'),
+    },
+  },
+  async ({ sourceTestPlanId, destinationTestPlanId, testCaseIds, batchSize, dryRun }) =>
+    handleBatchMoveTestCasesToSubPlan(tp, { sourceTestPlanId, destinationTestPlanId, testCaseIds, batchSize, dryRun }),
+)
+
+server.registerTool(
+  'unlink_test_cases_from_test_plan',
+  {
+    title: 'Unlink test cases from a test plan',
+    description: 'Remove only the selected Test Case-to-Test Plan memberships; never deletes Test Case records. Defaults to a dry run and verifies that each selected case no longer has the specified test-plan ID after execution.',
+    inputSchema: {
+      testPlanId: z.string().min(5).max(9).describe('Test plan ID whose direct case memberships will be removed'),
+      testCaseIds: z.array(z.string().min(5).max(9)).min(1).max(100)
+        .describe('Explicit test case IDs to unlink'),
+      dryRun: z.boolean().default(true).optional()
+        .describe('Validate without changing Targetprocess. Defaults to true.'),
+    },
+  },
+  async ({ testPlanId, testCaseIds, dryRun }) =>
+    handleUnlinkTestCasesFromTestPlan(tp, { testPlanId, testCaseIds, dryRun }),
+)
+
+server.registerTool(
+  'get_test_case_test_plans',
+  {
+    title: 'Get test case test plans',
+    description: 'Get every Test Plan currently linked to one Test Case, including IDs and names. Use this to verify a move or unlink.',
+    inputSchema: {
+      testCaseId: z.string().min(5).max(9).describe('Test case ID'),
+    },
+  },
+  async ({ testCaseId }) => handleGetTestCaseTestPlans(tp, testCaseId),
 )
 
 server.registerTool(

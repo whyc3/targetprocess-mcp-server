@@ -168,7 +168,7 @@ describe('TpClient test plan hierarchy operations', () => {
       movedTestCaseIds: ['356203'],
       retainedInSourceTestCaseIds: [],
     })
-    expect(fetchMock).toHaveBeenCalledTimes(5)
+    expect(fetchMock).toHaveBeenCalledTimes(7)
   })
 
   it('does not mutate when a requested test case is not directly in the source plan', async () => {
@@ -227,7 +227,7 @@ describe('TpClient test plan hierarchy operations', () => {
       retainedInSourceTestCaseIds: ['356203'],
     })
     expect(result.reason).toContain('no destination links were added')
-    expect(fetchMock).toHaveBeenCalledTimes(3)
+    expect(fetchMock).toHaveBeenCalledTimes(4)
   })
 
   it('restores the source link when destination assignment fails after unlinking', async () => {
@@ -241,6 +241,9 @@ describe('TpClient test plan hierarchy operations', () => {
       }
       if (decodedUrl.includes('/testPlans/356201/testCases/')) return jsonResponse({})
       if (decodedUrl.includes('/testCases/356203/')) {
+        if (init?.method === 'GET') {
+          return jsonResponse({ Id: 356203, TestPlans: { Items: [] } })
+        }
         expect(init?.method).toBe('POST')
         const body = String(init?.body)
         if (body.includes('356202')) return new Response('Destination assignment failed', { status: 500 })
@@ -264,5 +267,97 @@ describe('TpClient test plan hierarchy operations', () => {
       restoredToSourceTestCaseIds: ['356203'],
       unassignedWithoutDestinationTestCaseIds: [],
     })
+  })
+})
+
+describe('TpClient test plan unlink and batch move operations', () => {
+  it('unlinks only the requested plan membership and verifies the result', async () => {
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      const decodedUrl = decodeURIComponent(url)
+      if (decodedUrl.includes('/testPlans/356201/testcases/')) {
+        return jsonResponse({ Next: '', Items: [{ Id: 356203, Name: 'Card checkout' }] })
+      }
+      if (decodedUrl.includes('/testPlans/356201/testCases/')) {
+        expect(init?.method).toBe('DELETE')
+        expect(decodedUrl).toContain('childrenIds=356203')
+        return jsonResponse({})
+      }
+      if (decodedUrl.includes('/testCases/356203/')) {
+        expect(init?.method).toBe('GET')
+        return jsonResponse({ Id: 356203, TestPlans: { Items: [{ Id: 356202, Name: 'Payments' }] } })
+      }
+      throw new Error(`Unexpected URL: ${decodedUrl}`)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await new TpClient().unlinkTestCasesFromTestPlan({
+      testPlanId: '356201',
+      testCaseIds: ['356203'],
+      dryRun: false,
+    })
+
+    expect(result).toMatchObject({
+      canUnlink: true,
+      unlinkedTestCaseIds: ['356203'],
+      retainedInTestPlanTestCaseIds: [],
+      unverifiedTestCaseIds: [],
+    })
+  })
+
+  it('returns Targetprocess failure details from the unlink operation', async () => {
+    const fetchMock = vi.fn(async (url: string) => {
+      const decodedUrl = decodeURIComponent(url)
+      if (decodedUrl.includes('/testPlans/356201/testcases/')) {
+        return jsonResponse({ Next: '', Items: [{ Id: 356203, Name: 'Card checkout' }] })
+      }
+      if (decodedUrl.includes('/testPlans/356201/testCases/')) {
+        return new Response('{"ErrorId":"tp-unlink-error"}', { status: 500 })
+      }
+      throw new Error(`Unexpected URL: ${decodedUrl}`)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await new TpClient().unlinkTestCasesFromTestPlan({
+      testPlanId: '356201',
+      testCaseIds: ['356203'],
+      dryRun: false,
+    })
+
+    expect(result).toMatchObject({
+      canUnlink: true,
+      httpStatus: 500,
+      responseBody: '{"ErrorId":"tp-unlink-error"}',
+      retainedInTestPlanTestCaseIds: ['356203'],
+    })
+  })
+
+  it('stops a batch before later chunks when one chunk is not fully moved', async () => {
+    const tp = new TpClient()
+    const move = vi.spyOn(tp, 'moveTestCasesToSubPlan')
+      .mockResolvedValueOnce({
+        dryRun: false, sourceTestPlanId: '10', destinationTestPlanId: '20',
+        requestedTestCaseIds: ['1', '2'], eligibleTestCaseIds: ['1', '2'], missingFromSourceTestCaseIds: [],
+        canMove: true, movedTestCaseIds: ['1', '2'], failedToAssign: [], retainedInSourceTestCaseIds: [],
+        restoredToSourceTestCaseIds: [], unassignedWithoutDestinationTestCaseIds: [], unverifiedMoveTestCaseIds: [],
+      })
+      .mockResolvedValueOnce({
+        dryRun: false, sourceTestPlanId: '10', destinationTestPlanId: '20',
+        requestedTestCaseIds: ['3'], eligibleTestCaseIds: ['3'], missingFromSourceTestCaseIds: [],
+        canMove: true, movedTestCaseIds: [], failedToAssign: [], retainedInSourceTestCaseIds: ['3'],
+        restoredToSourceTestCaseIds: [], unassignedWithoutDestinationTestCaseIds: [], unverifiedMoveTestCaseIds: [],
+        reason: 'Source unlink failed',
+      })
+
+    const result = await tp.batchMoveTestCasesToSubPlan({
+      sourceTestPlanId: '10', destinationTestPlanId: '20', testCaseIds: ['1', '2', '3', '4', '5', '6'], batchSize: 2, dryRun: false,
+    })
+
+    expect(move).toHaveBeenCalledTimes(2)
+    expect(result).toMatchObject({
+      canMove: false,
+      movedTestCaseIds: ['1', '2'],
+      unprocessedTestCaseIds: ['5', '6'],
+    })
+    expect(result.reason).toContain('Source unlink failed')
   })
 })

@@ -40,6 +40,36 @@ export type TestCaseMoveResult = {
   unverifiedMoveTestCaseIds: string[]
 }
 
+export type TestCasePlanLink = { id: string, name?: string }
+
+export type TestCaseUnlinkResult = {
+  dryRun: boolean
+  testPlanId: string
+  requestedTestCaseIds: string[]
+  eligibleTestCaseIds: string[]
+  missingFromTestPlanTestCaseIds: string[]
+  canUnlink: boolean
+  unlinkedTestCaseIds: string[]
+  retainedInTestPlanTestCaseIds: string[]
+  unverifiedTestCaseIds: string[]
+  httpStatus?: number
+  responseBody?: string
+  reason?: string
+}
+
+export type TestCaseBatchMoveResult = {
+  dryRun: boolean
+  sourceTestPlanId: string
+  destinationTestPlanId: string
+  batchSize: number
+  requestedTestCaseIds: string[]
+  movedTestCaseIds: string[]
+  unprocessedTestCaseIds: string[]
+  batches: TestCaseMoveResult[]
+  canMove: boolean
+  reason?: string
+}
+
 type BulkTagUpdateSuccess<T> = {
   id: string
   response: T
@@ -81,7 +111,9 @@ export class TpClient {
   // Strips the access_token value out of a URL before it's logged, so the
   // live TP credential never ends up in stderr/log files.
   private redact(url: string): string {
-    return url.replace(this.token, "***")
+    return url
+      .replace(this.token, "***")
+      .replace(encodeURIComponent(this.token), "***")
   }
 
   // @ts-ignore
@@ -1175,18 +1207,18 @@ export class TpClient {
     result.canMove = true
     if (dryRun) return result
 
-    // Assignment POSTs are additive in Targetprocess.  Never add the
-    // destination link until the source link was removed successfully, or a
-    // "move" silently becomes a duplicate membership.
-    const unassigned = await this.del<unknown>({
-      pathParam: ["testPlans", sourceTestPlanId, "testCases"],
-      // Targetprocess documents this exact endpoint without format=json.
-      param: { "childrenIds": requestedTestCaseIds.join(',') },
+    // Assignment POSTs are additive in Targetprocess. Never add a
+    // destination link until every source link was removed and verified.
+    const unlinkResult = await this.unlinkTestCasesFromTestPlan({
+      testPlanId: sourceTestPlanId,
+      testCaseIds: requestedTestCaseIds,
+      dryRun: false,
     })
 
-    if (!unassigned.ok) {
-      result.retainedInSourceTestCaseIds = requestedTestCaseIds
-      result.reason = `The source link to ${sourceTestPlanId} could not be removed, so no destination links were added. No test cases were deleted or copied.`
+    if (unlinkResult.unlinkedTestCaseIds.length !== requestedTestCaseIds.length) {
+      result.retainedInSourceTestCaseIds = unlinkResult.retainedInTestPlanTestCaseIds
+      result.unverifiedMoveTestCaseIds = unlinkResult.unverifiedTestCaseIds
+      result.reason = `The source link to ${sourceTestPlanId} could not be removed and verified for every selected test case, so no destination links were added. No test cases were deleted or copied.`
       return result
     }
 
@@ -1227,13 +1259,158 @@ export class TpClient {
     return result
   }
 
-  private async getTestCasePlanIds(testCaseId: string): Promise<Set<string> | null> {
+  async getTestCaseTestPlans(testCaseId: string): Promise<TestCasePlanLink[] | null> {
     const testCase = await this.get<Pick<TestCase, 'TestPlans'>>({
       pathParam: ['testCases', testCaseId],
-      param: { 'format': 'json', 'include': '[Id,TestPlans[Id]]' },
+      param: { 'format': 'json', 'include': '[Id,TestPlans[Id,Name]]' },
     })
     if (!testCase?.TestPlans?.Items) return null
-    return new Set(testCase.TestPlans.Items.map((testPlan) => String(testPlan.Id)))
+    return testCase.TestPlans.Items.map((testPlan) => ({
+      id: String(testPlan.Id),
+      name: testPlan.Name,
+    }))
+  }
+
+  async unlinkTestCasesFromTestPlan({
+    testPlanId,
+    testCaseIds,
+    dryRun = true,
+  }: {
+    testPlanId: string
+    testCaseIds: string[]
+    dryRun?: boolean
+  }): Promise<TestCaseUnlinkResult> {
+    const requestedTestCaseIds = [...new Set(testCaseIds.map(String))]
+    const result: TestCaseUnlinkResult = {
+      dryRun,
+      testPlanId,
+      requestedTestCaseIds,
+      eligibleTestCaseIds: [],
+      missingFromTestPlanTestCaseIds: [],
+      canUnlink: false,
+      unlinkedTestCaseIds: [],
+      retainedInTestPlanTestCaseIds: [],
+      unverifiedTestCaseIds: [],
+    }
+
+    if (requestedTestCaseIds.length !== testCaseIds.length) {
+      result.reason = 'Provide each test case ID only once.'
+      return result
+    }
+
+    const sourceTestCases = await this.getAllOrNull<TestCase>({
+      pathParam: ['testPlans', testPlanId, 'testcases'],
+      param: { format: 'json' },
+    })
+    if (!sourceTestCases) {
+      result.reason = `Unable to read direct test cases in test plan ${testPlanId}.`
+      return result
+    }
+
+    const sourceTestCaseIds = new Set(sourceTestCases.map((testCase) => String(testCase.Id)))
+    result.eligibleTestCaseIds = requestedTestCaseIds.filter((id) => sourceTestCaseIds.has(id))
+    result.missingFromTestPlanTestCaseIds = requestedTestCaseIds.filter((id) => !sourceTestCaseIds.has(id))
+    if (result.missingFromTestPlanTestCaseIds.length > 0) {
+      result.reason = 'Every requested test case must be directly assigned to the specified test plan.'
+      return result
+    }
+
+    result.canUnlink = true
+    if (dryRun) return result
+
+    const unassigned = await this.del<unknown>({
+      pathParam: ['testPlans', testPlanId, 'testCases'],
+      // This is the exact endpoint documented by Targetprocess.
+      param: { childrenIds: requestedTestCaseIds.join(',') },
+    })
+    if (!unassigned.ok) {
+      result.httpStatus = unassigned.status
+      result.responseBody = unassigned.body
+      result.retainedInTestPlanTestCaseIds = requestedTestCaseIds
+      result.reason = `Targetprocess could not remove the selected links from test plan ${testPlanId}.`
+      return result
+    }
+
+    for (const testCaseId of requestedTestCaseIds) {
+      const planIds = await this.getTestCasePlanIds(testCaseId)
+      if (!planIds) {
+        result.unverifiedTestCaseIds.push(testCaseId)
+      } else if (planIds.has(testPlanId)) {
+        result.retainedInTestPlanTestCaseIds.push(testCaseId)
+      } else {
+        result.unlinkedTestCaseIds.push(testCaseId)
+      }
+    }
+
+    if (result.retainedInTestPlanTestCaseIds.length > 0 || result.unverifiedTestCaseIds.length > 0) {
+      result.reason = 'Targetprocess returned success, but not every removed link could be verified.'
+    }
+    return result
+  }
+
+  async batchMoveTestCasesToSubPlan({
+    sourceTestPlanId,
+    destinationTestPlanId,
+    testCaseIds,
+    batchSize = 100,
+    dryRun = true,
+  }: {
+    sourceTestPlanId: string
+    destinationTestPlanId: string
+    testCaseIds: string[]
+    batchSize?: number
+    dryRun?: boolean
+  }): Promise<TestCaseBatchMoveResult> {
+    const requestedTestCaseIds = [...new Set(testCaseIds.map(String))]
+    const result: TestCaseBatchMoveResult = {
+      dryRun,
+      sourceTestPlanId,
+      destinationTestPlanId,
+      batchSize,
+      requestedTestCaseIds,
+      movedTestCaseIds: [],
+      unprocessedTestCaseIds: [],
+      batches: [],
+      canMove: false,
+    }
+
+    if (requestedTestCaseIds.length !== testCaseIds.length) {
+      result.reason = 'Provide each test case ID only once.'
+      return result
+    }
+    if (!Number.isInteger(batchSize) || batchSize < 1 || batchSize > 100) {
+      result.reason = 'batchSize must be an integer from 1 through 100.'
+      return result
+    }
+
+    result.canMove = true
+    for (let index = 0; index < requestedTestCaseIds.length; index += batchSize) {
+      const batchIds = requestedTestCaseIds.slice(index, index + batchSize)
+      const batch = await this.moveTestCasesToSubPlan({
+        sourceTestPlanId,
+        destinationTestPlanId,
+        testCaseIds: batchIds,
+        dryRun,
+      })
+      result.batches.push(batch)
+      result.movedTestCaseIds.push(...batch.movedTestCaseIds)
+
+      const completed = dryRun
+        ? batch.canMove
+        : batch.movedTestCaseIds.length === batchIds.length
+      if (!completed) {
+        result.canMove = false
+        result.unprocessedTestCaseIds = requestedTestCaseIds.slice(index + batchIds.length)
+        result.reason = `Stopped after batch ${result.batches.length}: ${batch.reason || 'the batch did not complete a verified move'}`
+        return result
+      }
+    }
+    return result
+  }
+
+  private async getTestCasePlanIds(testCaseId: string): Promise<Set<string> | null> {
+    const testPlans = await this.getTestCaseTestPlans(testCaseId)
+    return testPlans ? new Set(testPlans.map((testPlan) => testPlan.id)) : null
   }
 
   private async getDirectTestPlanTestCaseItems(testPlan: TestPlanNode): Promise<TestCase[] | null> {
