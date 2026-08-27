@@ -1319,7 +1319,7 @@ server.registerTool(
   'move_test_cases_to_sub_plan',
   {
     title: 'Move test cases into a sub plan',
-    description: `Move explicitly selected test cases from a parent test plan into one of its nested sub plans without deleting any test case. The destination must be a descendant of the source, and every case must be directly assigned to the source. Defaults to a dry run; call again with dryRun false only after reviewing the result. On execution, cases are assigned to the destination before they are unassigned from the source, so a failed unassignment leaves both links intact rather than losing a test case.`,
+    description: `Move explicitly selected test cases from a parent test plan into one of its nested sub plans without deleting any test case. The destination must be a descendant of the source, and every case must be directly assigned to the source. Defaults to a dry run; call again with dryRun false only after reviewing the result. On execution, the source membership is removed before the destination is added; if it cannot be removed, the tool makes no destination assignment. A failed destination assignment triggers a source-link restore, and each successful move is verified to have the destination link and no source link.`,
     inputSchema: {
       sourceTestPlanId: z.string()
         .min(5)

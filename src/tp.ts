@@ -35,6 +35,9 @@ export type TestCaseMoveResult = {
   movedTestCaseIds: string[]
   failedToAssign: Array<{ id: string, reason: string }>
   retainedInSourceTestCaseIds: string[]
+  restoredToSourceTestCaseIds: string[]
+  unassignedWithoutDestinationTestCaseIds: string[]
+  unverifiedMoveTestCaseIds: string[]
 }
 
 type BulkTagUpdateSuccess<T> = {
@@ -113,7 +116,7 @@ export class TpClient {
   private async get<T>(params: TpClientParameters): Promise<T | null> {
     params.param["access_token"] = this.token
     let _url = this.params(params)
-    console.error(JSON.stringify({ "TP_GET_URL": _url }))
+    console.error(JSON.stringify({ "TP_GET_URL": this.redact(_url) }))
     try {
       const response = await fetch(_url, {
         method: "GET",
@@ -1127,6 +1130,9 @@ export class TpClient {
       movedTestCaseIds: [],
       failedToAssign: [],
       retainedInSourceTestCaseIds: [],
+      restoredToSourceTestCaseIds: [],
+      unassignedWithoutDestinationTestCaseIds: [],
+      unverifiedMoveTestCaseIds: [],
     }
 
     if (sourceTestPlanId === destinationTestPlanId) {
@@ -1169,7 +1175,21 @@ export class TpClient {
     result.canMove = true
     if (dryRun) return result
 
-    const assignedTestCaseIds: string[] = []
+    // Assignment POSTs are additive in Targetprocess.  Never add the
+    // destination link until the source link was removed successfully, or a
+    // "move" silently becomes a duplicate membership.
+    const unassigned = await this.del<unknown>({
+      pathParam: ["testPlans", sourceTestPlanId, "testCases"],
+      // Targetprocess documents this exact endpoint without format=json.
+      param: { "childrenIds": requestedTestCaseIds.join(',') },
+    })
+
+    if (!unassigned.ok) {
+      result.retainedInSourceTestCaseIds = requestedTestCaseIds
+      result.reason = `The source link to ${sourceTestPlanId} could not be removed, so no destination links were added. No test cases were deleted or copied.`
+      return result
+    }
+
     for (const testCaseId of requestedTestCaseIds) {
       const assigned = await this.post<any, unknown>({
         pathParam: ["testCases", testCaseId],
@@ -1178,28 +1198,42 @@ export class TpClient {
         "TestPlans": { "Items": [{ "Id": destinationTestPlanId }] },
       })
 
-      if (assigned) {
-        assignedTestCaseIds.push(testCaseId)
-      } else {
+      if (!assigned) {
         result.failedToAssign.push({ id: testCaseId, reason: `Could not assign to test plan ${destinationTestPlanId}.` })
+        const restored = await this.post<any, unknown>({
+          pathParam: ["testCases", testCaseId],
+          param: { "format": "json" },
+        }, {
+          "TestPlans": { "Items": [{ "Id": sourceTestPlanId }] },
+        })
+
+        if (restored) result.restoredToSourceTestCaseIds.push(testCaseId)
+        else result.unassignedWithoutDestinationTestCaseIds.push(testCaseId)
+        continue
       }
+
+      const planIds = await this.getTestCasePlanIds(testCaseId)
+      if (!planIds || !planIds.has(destinationTestPlanId) || planIds.has(sourceTestPlanId)) {
+        result.unverifiedMoveTestCaseIds.push(testCaseId)
+        continue
+      }
+
+      result.movedTestCaseIds.push(testCaseId)
     }
 
-    if (assignedTestCaseIds.length === 0) return result
-
-    const unassigned = await this.del<unknown>({
-      pathParam: ["testPlans", sourceTestPlanId, "testCases"],
-      param: { "format": "json", "childrenIds": assignedTestCaseIds.join(',') },
-    })
-
-    if (!unassigned.ok) {
-      result.retainedInSourceTestCaseIds = assignedTestCaseIds
-      result.reason = `The selected test cases were added to ${destinationTestPlanId}, but could not be unassigned from ${sourceTestPlanId}; no test cases were deleted.`
-      return result
+    if (result.failedToAssign.length > 0 || result.unverifiedMoveTestCaseIds.length > 0) {
+      result.reason = 'One or more test cases could not be verified as moved. Review the per-case result before continuing.'
     }
-
-    result.movedTestCaseIds = assignedTestCaseIds
     return result
+  }
+
+  private async getTestCasePlanIds(testCaseId: string): Promise<Set<string> | null> {
+    const testCase = await this.get<Pick<TestCase, 'TestPlans'>>({
+      pathParam: ['testCases', testCaseId],
+      param: { 'format': 'json', 'include': '[Id,TestPlans[Id]]' },
+    })
+    if (!testCase?.TestPlans?.Items) return null
+    return new Set(testCase.TestPlans.Items.map((testPlan) => String(testPlan.Id)))
   }
 
   private async getDirectTestPlanTestCaseItems(testPlan: TestPlanNode): Promise<TestCase[] | null> {

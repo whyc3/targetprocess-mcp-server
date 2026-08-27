@@ -127,7 +127,7 @@ describe('TpClient test plan hierarchy operations', () => {
     expect(fetchMock).toHaveBeenCalledTimes(2)
   })
 
-  it('assigns the destination before removing only the source-plan link', async () => {
+  it('removes the source link before adding and verifying the destination link', async () => {
     const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
       const decodedUrl = decodeURIComponent(url)
       if (decodedUrl.includes('/testPlans/356201/testcases/')) {
@@ -136,15 +136,19 @@ describe('TpClient test plan hierarchy operations', () => {
       if (decodedUrl.includes('/testPlans/?') && decodedUrl.includes('ParentTestPlans.Id eq 356201')) {
         return jsonResponse({ Next: '', Items: [{ Id: 356202, Name: 'Payments' }] })
       }
-      if (decodedUrl.includes('/testCases/356203/')) {
-        expect(init?.method).toBe('POST')
-        expect(init?.body).toBe(JSON.stringify({ TestPlans: { Items: [{ Id: '356202' }] } }))
-        return jsonResponse({ Id: 356203 })
-      }
       if (decodedUrl.includes('/testPlans/356201/testCases/')) {
         expect(init?.method).toBe('DELETE')
         expect(decodedUrl).toContain('childrenIds=356203')
+        expect(decodedUrl).not.toContain('format=json')
         return jsonResponse({})
+      }
+      if (decodedUrl.includes('/testCases/356203/')) {
+        if (init?.method === 'POST') {
+          expect(init.body).toBe(JSON.stringify({ TestPlans: { Items: [{ Id: '356202' }] } }))
+          return jsonResponse({ Id: 356203 })
+        }
+        expect(init?.method).toBe('GET')
+        return jsonResponse({ Id: 356203, TestPlans: { Items: [{ Id: 356202 }] } })
       }
       throw new Error(`Unexpected URL: ${decodedUrl}`)
     })
@@ -164,7 +168,7 @@ describe('TpClient test plan hierarchy operations', () => {
       movedTestCaseIds: ['356203'],
       retainedInSourceTestCaseIds: [],
     })
-    expect(fetchMock).toHaveBeenCalledTimes(4)
+    expect(fetchMock).toHaveBeenCalledTimes(5)
   })
 
   it('does not mutate when a requested test case is not directly in the source plan', async () => {
@@ -193,8 +197,8 @@ describe('TpClient test plan hierarchy operations', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1)
   })
 
-  it('keeps both plan links when the source unlink fails', async () => {
-    const fetchMock = vi.fn(async (url: string) => {
+  it('does not add a destination link when the source unlink fails', async () => {
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
       const decodedUrl = decodeURIComponent(url)
       if (decodedUrl.includes('/testPlans/356201/testcases/')) {
         return jsonResponse({ Next: '', Items: [{ Id: 356203, Name: 'Card checkout' }] })
@@ -202,10 +206,8 @@ describe('TpClient test plan hierarchy operations', () => {
       if (decodedUrl.includes('/testPlans/?') && decodedUrl.includes('ParentTestPlans.Id eq 356201')) {
         return jsonResponse({ Next: '', Items: [{ Id: 356202, Name: 'Payments' }] })
       }
-      if (decodedUrl.includes('/testCases/356203/')) {
-        return jsonResponse({ Id: 356203 })
-      }
       if (decodedUrl.includes('/testPlans/356201/testCases/')) {
+        expect(init?.method).toBe('DELETE')
         return new Response('Source link could not be removed', { status: 500 })
       }
       throw new Error(`Unexpected URL: ${decodedUrl}`)
@@ -224,6 +226,43 @@ describe('TpClient test plan hierarchy operations', () => {
       movedTestCaseIds: [],
       retainedInSourceTestCaseIds: ['356203'],
     })
-    expect(result.reason).toContain('no test cases were deleted')
+    expect(result.reason).toContain('no destination links were added')
+    expect(fetchMock).toHaveBeenCalledTimes(3)
+  })
+
+  it('restores the source link when destination assignment fails after unlinking', async () => {
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      const decodedUrl = decodeURIComponent(url)
+      if (decodedUrl.includes('/testPlans/356201/testcases/')) {
+        return jsonResponse({ Next: '', Items: [{ Id: 356203, Name: 'Card checkout' }] })
+      }
+      if (decodedUrl.includes('/testPlans/?') && decodedUrl.includes('ParentTestPlans.Id eq 356201')) {
+        return jsonResponse({ Next: '', Items: [{ Id: 356202, Name: 'Payments' }] })
+      }
+      if (decodedUrl.includes('/testPlans/356201/testCases/')) return jsonResponse({})
+      if (decodedUrl.includes('/testCases/356203/')) {
+        expect(init?.method).toBe('POST')
+        const body = String(init?.body)
+        if (body.includes('356202')) return new Response('Destination assignment failed', { status: 500 })
+        expect(body).toContain('356201')
+        return jsonResponse({ Id: 356203 })
+      }
+      throw new Error(`Unexpected URL: ${decodedUrl}`)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await new TpClient().moveTestCasesToSubPlan({
+      sourceTestPlanId: '356201',
+      destinationTestPlanId: '356202',
+      testCaseIds: ['356203'],
+      dryRun: false,
+    })
+
+    expect(result).toMatchObject({
+      movedTestCaseIds: [],
+      failedToAssign: [{ id: '356203', reason: 'Could not assign to test plan 356202.' }],
+      restoredToSourceTestCaseIds: ['356203'],
+      unassignedWithoutDestinationTestCaseIds: [],
+    })
   })
 })
