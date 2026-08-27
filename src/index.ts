@@ -40,6 +40,7 @@ import { handleMoveTestCasesToSubPlan } from "./handlers/move_test_cases_to_sub_
 import { handleBatchMoveTestCasesToSubPlan } from "./handlers/batch_move_test_cases_to_sub_plan.js";
 import { handleGetTestCaseTestPlans } from "./handlers/get_test_case_test_plans.js";
 import { handleUnlinkTestCasesFromTestPlan } from "./handlers/unlink_test_cases_from_test_plan.js";
+import { handleUnlinkTestCasesFromTestPlanViaUi } from "./handlers/unlink_test_cases_from_test_plan_via_ui.js";
 import { handleGetTestPlanTestCasesById } from "./handlers/get_test_plan_test_cases_by_id.js";
 import { handleGetTestPlanTestCasesWithStepsById } from "./handlers/get_test_plan_test_cases_with_steps_by_id.js";
 import { handleGetTestCaseById } from "./handlers/get_test_case_by_id.js";
@@ -1381,6 +1382,23 @@ server.registerTool(
   },
   async ({ testPlanId, testCaseIds, dryRun }) =>
     handleUnlinkTestCasesFromTestPlan(tp, { testPlanId, testCaseIds, dryRun }),
+)
+
+server.registerTool(
+  'unlink_test_cases_from_test_plan_via_ui',
+  {
+    title: 'Unlink test cases through the Targetprocess UI command',
+    description: 'Remove selected Test Case-to-Test Plan memberships through Targetprocess’s EntityTreeView UI command. Never deletes Test Case records. Requires a configured TP_UI_COOKIE browser session, defaults to dry run, and verifies every removed plan membership after execution.',
+    inputSchema: {
+      testPlanId: z.string().min(5).max(9).describe('Test plan ID whose direct case memberships will be removed'),
+      testCaseIds: z.array(z.string().min(5).max(9)).min(1).max(500)
+        .describe('Explicit test case IDs to unlink in one UI command'),
+      dryRun: z.boolean().default(true).optional()
+        .describe('Validate without changing Targetprocess. Defaults to true.'),
+    },
+  },
+  async ({ testPlanId, testCaseIds, dryRun }) =>
+    handleUnlinkTestCasesFromTestPlanViaUi(tp, { testPlanId, testCaseIds, dryRun }),
 )
 
 server.registerTool(
