@@ -1,6 +1,5 @@
 import { readFileSync } from "fs";
 import { basename } from "path";
-import { randomUUID } from "crypto";
 import {
   TpClientParameters,
   TpResponse,
@@ -85,8 +84,6 @@ export class TpClient {
 
   private baseUrl: string = config.tp.url
   private token: string = config.tp.token
-  private uiCookie: string = process.env.TP_UI_COOKIE || config.tp.uiCookie
-  private uiUserId: string = process.env.TP_UI_USER_ID || config.tp.uiUserId
   private headers: HeadersInit
   private readonly v1 = '/api/v1'
   private readonly v2 = '/api/v2'
@@ -1351,77 +1348,6 @@ export class TpClient {
     return result
   }
 
-  async unlinkTestCasesFromTestPlanViaUi({
-    testPlanId,
-    testCaseIds,
-    dryRun = true,
-  }: {
-    testPlanId: string
-    testCaseIds: string[]
-    dryRun?: boolean
-  }): Promise<TestCaseUnlinkResult> {
-    const requestedTestCaseIds = [...new Set(testCaseIds.map(String))]
-    const result: TestCaseUnlinkResult = {
-      dryRun,
-      testPlanId,
-      requestedTestCaseIds,
-      eligibleTestCaseIds: [],
-      missingFromTestPlanTestCaseIds: [],
-      canUnlink: false,
-      unlinkedTestCaseIds: [],
-      retainedInTestPlanTestCaseIds: [],
-      unverifiedTestCaseIds: [],
-    }
-
-    if (requestedTestCaseIds.length !== testCaseIds.length) {
-      result.reason = 'Provide each test case ID only once.'
-      return result
-    }
-
-    const sourceTestCases = await this.getAllOrNull<TestCase>({
-      pathParam: ['testPlans', testPlanId, 'testcases'],
-      param: { format: 'json' },
-    })
-    if (!sourceTestCases) {
-      result.reason = `Unable to read direct test cases in test plan ${testPlanId}.`
-      return result
-    }
-    const sourceTestCaseIds = new Set(sourceTestCases.map((testCase) => String(testCase.Id)))
-    result.eligibleTestCaseIds = requestedTestCaseIds.filter((id) => sourceTestCaseIds.has(id))
-    result.missingFromTestPlanTestCaseIds = requestedTestCaseIds.filter((id) => !sourceTestCaseIds.has(id))
-    if (result.missingFromTestPlanTestCaseIds.length > 0) {
-      result.reason = 'Every requested test case must be directly assigned to the specified test plan.'
-      return result
-    }
-
-    result.canUnlink = true
-    if (dryRun) return result
-    if (!this.uiCookie) {
-      result.reason = 'TP_UI_COOKIE is required for the Targetprocess UI unlink command.'
-      return result
-    }
-
-    const uiResult = await this.postEntityTreeViewUnassign(testPlanId, requestedTestCaseIds)
-    if (!uiResult.ok) {
-      result.httpStatus = uiResult.status
-      result.responseBody = uiResult.body
-      result.retainedInTestPlanTestCaseIds = requestedTestCaseIds
-      result.reason = `Targetprocess UI unlink command failed for test plan ${testPlanId}.`
-      return result
-    }
-
-    for (const testCaseId of requestedTestCaseIds) {
-      const planIds = await this.getTestCasePlanIds(testCaseId)
-      if (!planIds) result.unverifiedTestCaseIds.push(testCaseId)
-      else if (planIds.has(testPlanId)) result.retainedInTestPlanTestCaseIds.push(testCaseId)
-      else result.unlinkedTestCaseIds.push(testCaseId)
-    }
-    if (result.retainedInTestPlanTestCaseIds.length > 0 || result.unverifiedTestCaseIds.length > 0) {
-      result.reason = 'The UI command completed, but not every removed membership could be verified.'
-    }
-    return result
-  }
-
   async batchMoveTestCasesToSubPlan({
     sourceTestPlanId,
     destinationTestPlanId,
@@ -1485,51 +1411,6 @@ export class TpClient {
   private async getTestCasePlanIds(testCaseId: string): Promise<Set<string> | null> {
     const testPlans = await this.getTestCaseTestPlans(testCaseId)
     return testPlans ? new Set(testPlans.map((testPlan) => testPlan.id)) : null
-  }
-
-  private async postEntityTreeViewUnassign(testPlanId: string, testCaseIds: string[]): Promise<TpResult<unknown>> {
-    const baseUrl = this.baseUrl.replace(/\/$/, '')
-    const body = {
-      path: [],
-      items: testCaseIds.map((itemId) => ({ itemId: Number(itemId), entityType: 'testcase' })),
-      boardId: `testplan${testPlanId}testcases`,
-      definition: {
-        global: { acid: null },
-        user: { cardsFilter: '', cardFilter: null },
-        cells: {
-          items: [
-            { id: 'testcase', data: '{cardData:{id,name,type:resourceType,projectId:project.id},testitem_name_1line:{name,titleAttribute:name},general_entity_id:{id,entityType:{entityType.name}},business_value_long:{priority:{name:priority.name},id:priority.id}}', filter: [], ordering: null },
-            { id: 'testplan', data: '{cardData:{id,name,type:resourceType,projectId:project.id,entityState.isFinal,teamId:team.id,priority.importance},testitem_name_1line:{name,titleAttribute:name,linkedEntityType:linkedGeneral.entityType},general_entity_id:{id,entityType:{entityType.name}},business_value_long:{priority:{name:priority.name},id:priority.id}}', filter: [], ordering: null },
-          ],
-          filter: [],
-          ordering: { name: 'name', direction: 'Desc', displayName: 'Test Cases, Test Plans', path: { levelId: '', bucketIndex: null } },
-        },
-        innerLevels: { items: [{ items: [{ parentEntityType: 'testplan' }] }] },
-        entityAxis: { axisId: 'testplan', entityId: Number(testPlanId) },
-      },
-    }
-    const headers: Record<string, string> = {
-      Accept: 'application/json, text/javascript, */*; q=0.01',
-      'Content-Type': 'application/json; charset=utf-8',
-      Cookie: this.uiCookie,
-      Origin: baseUrl,
-      Referer: `${baseUrl}/RestUI/Board.aspx`,
-      'X-Client-Id': 'frontend',
-      'X-Originator-Id': `targetprocess-mcp/${randomUUID()}/unassign/${randomUUID()}`,
-      'X-Requested-With': 'XMLHttpRequest',
-    }
-    if (this.uiUserId) headers['X-User-Id'] = this.uiUserId
-
-    try {
-      const response = await fetch(`${baseUrl}/slice/v2/EntityTreeView/unassign`, {
-        method: 'POST', headers, body: JSON.stringify(body),
-      })
-      const text = await response.text()
-      if (!response.ok) return { ok: false, status: response.status, body: text }
-      return { ok: true, data: text ? JSON.parse(text) : null }
-    } catch (error) {
-      return { ok: false, status: 0, body: String(error) }
-    }
   }
 
   private async getDirectTestPlanTestCaseItems(testPlan: TestPlanNode): Promise<TestCase[] | null> {

@@ -331,47 +331,6 @@ describe('TpClient test plan unlink and batch move operations', () => {
     })
   })
 
-  it('uses the UI unassign command and verifies the root membership is gone', async () => {
-    vi.stubEnv('TP_UI_COOKIE', '.AspNet.Cookies=test-session')
-    vi.stubEnv('TP_UI_USER_ID', '1101')
-    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
-      const decodedUrl = decodeURIComponent(url)
-      if (decodedUrl.includes('/testPlans/356201/testcases/')) {
-        return jsonResponse({ Next: '', Items: [{ Id: 356203, Name: 'Card checkout' }] })
-      }
-      if (decodedUrl.includes('/slice/v2/EntityTreeView/unassign')) {
-        expect(init?.method).toBe('POST')
-        expect(init?.headers).toMatchObject({
-          Cookie: '.AspNet.Cookies=test-session',
-          'X-Client-Id': 'frontend',
-          'X-User-Id': '1101',
-        })
-        const body = JSON.parse(String(init?.body))
-        expect(body).toMatchObject({
-          boardId: 'testplan356201testcases',
-          items: [{ itemId: 356203, entityType: 'testcase' }],
-          definition: { entityAxis: { axisId: 'testplan', entityId: 356201 } },
-        })
-        return new Response('', { status: 200 })
-      }
-      if (decodedUrl.includes('/testCases/356203/')) {
-        return jsonResponse({ Id: 356203, TestPlans: { Items: [{ Id: 356202, Name: 'Payments' }] } })
-      }
-      throw new Error(`Unexpected URL: ${decodedUrl}`)
-    })
-    vi.stubGlobal('fetch', fetchMock)
-
-    const result = await new TpClient().unlinkTestCasesFromTestPlanViaUi({
-      testPlanId: '356201', testCaseIds: ['356203'], dryRun: false,
-    })
-
-    expect(result).toMatchObject({
-      canUnlink: true,
-      unlinkedTestCaseIds: ['356203'],
-      retainedInTestPlanTestCaseIds: [],
-    })
-  })
-
   it('stops a batch before later chunks when one chunk is not fully moved', async () => {
     const tp = new TpClient()
     const move = vi.spyOn(tp, 'moveTestCasesToSubPlan')
