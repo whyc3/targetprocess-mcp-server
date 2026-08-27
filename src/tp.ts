@@ -23,6 +23,20 @@ type TestPlanNode = {
   name?: string
 }
 
+export type TestCaseMoveResult = {
+  dryRun: boolean
+  sourceTestPlanId: string
+  destinationTestPlanId: string
+  requestedTestCaseIds: string[]
+  eligibleTestCaseIds: string[]
+  missingFromSourceTestCaseIds: string[]
+  canMove: boolean
+  reason?: string
+  movedTestCaseIds: string[]
+  failedToAssign: Array<{ id: string, reason: string }>
+  retainedInSourceTestCaseIds: string[]
+}
+
 type BulkTagUpdateSuccess<T> = {
   id: string
   response: T
@@ -742,6 +756,24 @@ export class TpClient {
     }, testPlan) as T
   }
 
+  async createNestedTestPlan<T>({ title, parentTestPlanId, description }: { title: string, parentTestPlanId: string, description?: string }): Promise<T> {
+    const parentTestPlan = await this.getTestPlan<Partial<TestPlan>>(parentTestPlanId)
+    if (!parentTestPlan) return null as T
+
+    const testPlan: Record<string, any> = {
+      "Name": title,
+      "Project": { "Id": parentTestPlan.Project?.Id ?? config.tp.projectId },
+      "ParentTestPlans": [{ "Id": parentTestPlanId }],
+    }
+
+    if (description !== undefined) testPlan["Description"] = description
+
+    return this.post<any, T>({
+      pathParam: ["testPlans"],
+      param: { "format": "json" },
+    }, testPlan) as T
+  }
+
   async getUser<T>(userId: string): Promise<T> {
     return this.get<T>({
       pathParam: ["Users", userId],
@@ -1072,6 +1104,104 @@ export class TpClient {
     return { Next: "", Items: testCases } as T
   }
 
+  async moveTestCasesToSubPlan({
+    sourceTestPlanId,
+    destinationTestPlanId,
+    testCaseIds,
+    dryRun = true,
+  }: {
+    sourceTestPlanId: string
+    destinationTestPlanId: string
+    testCaseIds: string[]
+    dryRun?: boolean
+  }): Promise<TestCaseMoveResult> {
+    const requestedTestCaseIds = [...new Set(testCaseIds.map(String))]
+    const result: TestCaseMoveResult = {
+      dryRun,
+      sourceTestPlanId,
+      destinationTestPlanId,
+      requestedTestCaseIds,
+      eligibleTestCaseIds: [],
+      missingFromSourceTestCaseIds: [],
+      canMove: false,
+      movedTestCaseIds: [],
+      failedToAssign: [],
+      retainedInSourceTestCaseIds: [],
+    }
+
+    if (sourceTestPlanId === destinationTestPlanId) {
+      result.reason = 'Source and destination test plans must be different.'
+      return result
+    }
+
+    if (requestedTestCaseIds.length !== testCaseIds.length) {
+      result.reason = 'Provide each test case ID only once.'
+      return result
+    }
+
+    const sourceTestCases = await this.getAllOrNull<TestCase>({
+      pathParam: ["testPlans", sourceTestPlanId, "testcases"],
+      param: { "format": "json" },
+    })
+    if (!sourceTestCases) {
+      result.reason = `Unable to read direct test cases in source test plan ${sourceTestPlanId}.`
+      return result
+    }
+
+    const sourceTestCaseIds = new Set(sourceTestCases.map((testCase) => String(testCase.Id)))
+    result.eligibleTestCaseIds = requestedTestCaseIds.filter((id) => sourceTestCaseIds.has(id))
+    result.missingFromSourceTestCaseIds = requestedTestCaseIds.filter((id) => !sourceTestCaseIds.has(id))
+    if (result.missingFromSourceTestCaseIds.length > 0) {
+      result.reason = 'Every requested test case must be directly assigned to the source test plan.'
+      return result
+    }
+
+    const isDescendant = await this.isTestPlanDescendant(sourceTestPlanId, destinationTestPlanId)
+    if (isDescendant === null) {
+      result.reason = `Unable to verify that test plan ${destinationTestPlanId} is nested below ${sourceTestPlanId}.`
+      return result
+    }
+    if (!isDescendant) {
+      result.reason = `Destination test plan ${destinationTestPlanId} is not a sub plan of ${sourceTestPlanId}.`
+      return result
+    }
+
+    result.canMove = true
+    if (dryRun) return result
+
+    const assignedTestCaseIds: string[] = []
+    for (const testCaseId of requestedTestCaseIds) {
+      const assigned = await this.post<any, unknown>({
+        pathParam: ["testCases", testCaseId],
+        param: { "format": "json" },
+      }, {
+        "TestPlans": { "Items": [{ "Id": destinationTestPlanId }] },
+      })
+
+      if (assigned) {
+        assignedTestCaseIds.push(testCaseId)
+      } else {
+        result.failedToAssign.push({ id: testCaseId, reason: `Could not assign to test plan ${destinationTestPlanId}.` })
+      }
+    }
+
+    if (assignedTestCaseIds.length === 0) return result
+
+    const unassigned = await this.del<unknown>({
+      pathParam: ["testPlans", sourceTestPlanId, "testCases"],
+      param: { "format": "json", "childrenIds": assignedTestCaseIds.join(',') },
+    })
+
+    if (!unassigned.ok) {
+      result.retainedInSourceTestCaseIds = assignedTestCaseIds
+      result.reason = `The selected test cases were added to ${destinationTestPlanId}, but could not be unassigned from ${sourceTestPlanId}; no test cases were deleted.`
+      return result
+    }
+
+    result.movedTestCaseIds = assignedTestCaseIds
+    return result
+  }
+
   private async getDirectTestPlanTestCaseItems(testPlan: TestPlanNode): Promise<TestCase[] | null> {
     const items = await this.getAllOrNull<TestCase>({
       pathParam: ["testPlans", testPlan.id, "testcases"],
@@ -1085,6 +1215,27 @@ export class TpClient {
       TestPlanId: testPlan.numericId,
       TestPlanName: testPlan.name || item.LinkedTestPlan?.Name,
     }))
+  }
+
+  private async isTestPlanDescendant(ancestorTestPlanId: string, candidateTestPlanId: string): Promise<boolean | null> {
+    const queue = [ancestorTestPlanId]
+    const visited = new Set<string>()
+
+    while (queue.length > 0) {
+      const parentTestPlanId = queue.shift()!
+      if (visited.has(parentTestPlanId)) continue
+      visited.add(parentTestPlanId)
+
+      const children = await this.getChildTestPlanNodes(parentTestPlanId)
+      if (!children) return null
+
+      for (const child of children) {
+        if (child.id === candidateTestPlanId) return true
+        if (!visited.has(child.id)) queue.push(child.id)
+      }
+    }
+
+    return false
   }
 
   private async getChildTestPlanNodes(testPlanId: string): Promise<TestPlanNode[] | null> {

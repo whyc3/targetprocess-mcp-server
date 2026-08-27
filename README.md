@@ -111,9 +111,12 @@ Cards — Write
 > `projectId` and `teamId` are optional — fall back to `TP_PROJECT_ID` and `TP_TEAM_ID` from config  
 - `create_formatted_feature` — Create a new feature with a feature-level TDRE template in Header → Definitions → Scope & Boundaries → Non-Functional Requirements → Cross-Cutting Scenarios → Child Stories → Open Questions/Risks → References → Notes order (title, header object with businessBackground, nonFunctionalRequirements array with area/requirement/status/storyOrOwner, optional definitions, scope, crossCuttingScenarios, childStories, openQuestions, references, notes, optional epicId, releaseId, projectId, teamId)  
 - `update_feature` — Update a feature card with data provided from user input; pass only the fields to change (id, optional title, optional description, optional epicId, optional releaseId, optional projectId, optional teamId, optional entityStateId, optional tags, optional teamIterationId)  
-- `create_test_plan` — Create a test plan linked to a UserStory, Bug, or Feature (title, resourceId, optional resourceType, optional description/startDate/endDate)  
-> [!NOTE]  
-> requires `TP_PROJECT_ID`, 
+- `create_test_plan` — Create a test plan linked to a UserStory, Bug, or Feature (title, resourceId, optional resourceType, optional description/startDate/endDate)
+> [!NOTE]
+> requires `TP_PROJECT_ID`,
+- `create_nested_test_plan` — Create a suite/module sub plan below an existing test plan (title, parentTestPlanId, optional description)
+- `move_test_cases_to_sub_plan` — Safely move selected direct test cases from a parent plan to one of its sub plans (sourceTestPlanId, destinationTestPlanId, testCaseIds, optional dryRun; defaults to `true`)
+  > The tool validates the hierarchy and membership before any change. When executed, it adds the destination link first, then removes only the source-plan link—test cases are never deleted.
 
 Test Case Workflows
 - `get_test_plan_by_id` — Get a Targetprocess Test Plan by ID, including plain-text description, state, project, linked card, and dates (id)
@@ -307,6 +310,7 @@ npx vitest            # watch mode
 | `my_work_tools.test.ts` | `get_in_progress_tasks_and_bugs`, `list_my_user_stories`, `list_my_bugs`, `log_time`, `get_my_time_logs` |
 | `entity_tools.test.ts` | `get_feature_user_stories`, `get_user_story_bugs`, `get_card_current_status` |
 | `test_plan_tools.test.ts` | `get_test_plan_by_id`, `get_test_plan_test_cases_by_id`, `get_test_cases_by_id`, `get_test_plan_test_cases_with_steps_by_id`, `get_test_case_by_id`, `update_test_case_by_id`, `delete_test_case_by_id`, `add_test_case_step_by_id`, `update_test_case_step_by_id`, `delete_test_case_step_by_id` |
+| `test_plan_hierarchy_tools.test.ts` | `create_nested_test_plan`, `move_test_cases_to_sub_plan` |
 | `creation_tools.test.ts` | `create_bug`, `create_user_story`, `create_feature`, `create_task`, `update_bug`, `update_user_story_state` |
 | `my_work_tools.test.ts` | `get_in_progress_tasks_and_bugs`, `list_my_user_stories`, `list_my_bugs`, `log_time`, `get_my_time_logs` |
 | `entity_tools.test.ts` | `get_feature_user_stories`, `get_user_story_bugs`, `get_card_current_status` |

@@ -35,6 +35,8 @@ import { handleUpdateUserStory } from "./handlers/update_user_story.js";
 import { handleCreateFeature } from "./handlers/create_feature.js";
 import { handleCreateEpic } from "./handlers/create_epic.js";
 import { handleGetTestPlanById } from "./handlers/get_test_plan_by_id.js";
+import { handleCreateNestedTestPlan } from "./handlers/create_nested_test_plan.js";
+import { handleMoveTestCasesToSubPlan } from "./handlers/move_test_cases_to_sub_plan.js";
 import { handleGetTestPlanTestCasesById } from "./handlers/get_test_plan_test_cases_by_id.js";
 import { handleGetTestPlanTestCasesWithStepsById } from "./handlers/get_test_plan_test_cases_with_steps_by_id.js";
 import { handleGetTestCaseById } from "./handlers/get_test_case_by_id.js";
@@ -1289,6 +1291,56 @@ server.registerTool(
       }],
     };
   }
+)
+
+server.registerTool(
+  'create_nested_test_plan',
+  {
+    title: 'Create a nested test plan',
+    description: 'Create a sub plan beneath an existing Targetprocess test plan. The sub plan inherits the parent plan’s project and uses the title exactly as provided.',
+    inputSchema: {
+      title: z.string()
+        .min(1)
+        .describe('Suite or module name for the sub plan, for example "Payments"'),
+      parentTestPlanId: z.string()
+        .min(5)
+        .max(9)
+        .describe('Existing parent test plan ID'),
+      description: z.string()
+        .optional()
+        .describe('Optional description of the suite scope'),
+    },
+  },
+  async ({ title, parentTestPlanId, description }) =>
+    handleCreateNestedTestPlan(tp, { title, parentTestPlanId, description }),
+)
+
+server.registerTool(
+  'move_test_cases_to_sub_plan',
+  {
+    title: 'Move test cases into a sub plan',
+    description: `Move explicitly selected test cases from a parent test plan into one of its nested sub plans without deleting any test case. The destination must be a descendant of the source, and every case must be directly assigned to the source. Defaults to a dry run; call again with dryRun false only after reviewing the result. On execution, cases are assigned to the destination before they are unassigned from the source, so a failed unassignment leaves both links intact rather than losing a test case.`,
+    inputSchema: {
+      sourceTestPlanId: z.string()
+        .min(5)
+        .max(9)
+        .describe('Current parent test plan that directly contains the selected test cases'),
+      destinationTestPlanId: z.string()
+        .min(5)
+        .max(9)
+        .describe('Existing nested sub plan that will contain the selected test cases'),
+      testCaseIds: z.array(z.string().min(5).max(9))
+        .min(1)
+        .max(100)
+        .describe('Explicit test case IDs to move; use batches of at most 100'),
+      dryRun: z.boolean()
+        .default(true)
+        .optional()
+        .describe('Validate the move without changing Targetprocess. Defaults to true; set false to execute.'),
+    },
+  },
+  async ({ sourceTestPlanId, destinationTestPlanId, testCaseIds, dryRun }) =>
+    handleMoveTestCasesToSubPlan(tp, { sourceTestPlanId, destinationTestPlanId, testCaseIds, dryRun }),
 )
 
 server.registerTool(
