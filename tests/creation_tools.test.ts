@@ -64,6 +64,16 @@ describe('handleCreateBug', () => {
       title: 'Bug', bugContent: 'content', tags: 'regression, mobile', teamIterationId: '789',
     })
   })
+
+  it('passes releaseId to createBugOnly', async () => {
+    vi.mocked(mockTp.createBugOnly).mockResolvedValue({ Id: 1 } as any)
+
+    await handleCreateBug(mockTp, { title: 'Bug', bugContent: 'content', releaseId: '145200' })
+
+    expect(mockTp.createBugOnly).toHaveBeenCalledWith({
+      title: 'Bug', bugContent: 'content', releaseId: '145200',
+    })
+  })
 })
 
 describe('handleCreateUserStory', () => {
@@ -193,6 +203,14 @@ describe('handleUpdateBug', () => {
     await handleUpdateBug(mockTp, { id: '100', addTags: 'api', removeTags: 'legacy' })
 
     expect(mockTp.updateBug).toHaveBeenCalledWith({ id: '100', addTags: 'api', removeTags: 'legacy' })
+  })
+
+  it('passes releaseId to updateBug', async () => {
+    vi.mocked(mockTp.updateBug).mockResolvedValue({ Id: 1 } as any)
+
+    await handleUpdateBug(mockTp, { id: '100', releaseId: '145200' })
+
+    expect(mockTp.updateBug).toHaveBeenCalledWith({ id: '100', releaseId: '145200' })
   })
 
   it('rejects mixing tags with addTags or removeTags', async () => {

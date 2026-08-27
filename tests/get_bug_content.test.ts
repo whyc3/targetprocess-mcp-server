@@ -43,6 +43,21 @@ describe('handleGetBugContent', () => {
     expect(parsed.description).toContain('See error')
   })
 
+  it('includes the assigned release when present', async () => {
+    vi.mocked(mockTp.getBug).mockResolvedValue({
+      Id: 1,
+      Name: 'Bug',
+      Description: '',
+      CustomFields: [],
+      Release: { Id: 145200, Name: 'Release 2.7' },
+    } as any)
+
+    const result = await handleGetBugContent(mockTp, '100001')
+    const parsed = JSON.parse(result.content[0].text)
+
+    expect(parsed.release).toEqual({ id: 145200, name: 'Release 2.7' })
+  })
+
   it('returns failure message when bug is not found', async () => {
     vi.mocked(mockTp.getBug).mockResolvedValue(null as any)
 

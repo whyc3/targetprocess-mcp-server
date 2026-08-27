@@ -72,8 +72,11 @@ Cards — Read
 Cards — Write
 - `add_comment` — Post a comment to any card (id, comment)
 - `add_comment_with_user` — Post a comment to any card and mention a specific user (id, comment, user object from `get_users`)
-- `update_bug` — Update an existing bug (id, optional title, optional bugContent, optional origin, optional projectId, optional teamId, optional entityStateId)
+- `update_bug` — Update an existing bug (id, optional title, optional bugContent, optional origin, optional releaseId, optional projectId, optional teamId, optional entityStateId)
   > Resolve state name → ID via `get_bug_workflows` before passing `entityStateId`
+- `get_priorities` — List configured Business Value / Priority options (no params)
+- `set_business_value` — Set a user story, feature, or epic's Business Value / Priority (id, entityType, priorityId)
+  > Resolve the target priority with `get_priorities` before setting it
 - `update_user_story` — Update an existing user story (id, optional title, optional description, optional projectId, optional teamId, optional entityStateId)
   > Resolve state name → ID via `get_user_story_workflows` before passing `entityStateId`
 - `create_card_relation` — Create a relation between two cards (masterId, slaveId, optional relationType name, default: "Depends on")
@@ -84,12 +87,12 @@ Cards — Write
 - `update_user_story_state` — Update the sub-state (team assignment entity state) for a user story (id, optional entityStateId, optional teamId, optional teamAssignmentId)
   > 1. Call `get_user_story_content` first to find the assigned team and `teamAssignmentId`
   > 2. Call `get_user_story_workflows` to resolve the target state name → `entityStateId`
-- `create_bug` — Create a standalone bug (title, bugContent, optional origin, optional projectId, optional teamId, optional entityStateName)
+- `create_bug` — Create a standalone bug (title, bugContent, optional origin, optional releaseId, optional projectId, optional teamId, optional entityStateName)
   > `origin` accepted values: `Production - Customer`, `Production - Internal`, `Pre-Release - Customer`, `Pre-Release - Internal`, `Regression - Dev01`, `Regression - Team Env`, `Manual QA` *(default)*, `Developer Raised`, `Operations`
   > `entityStateName` accepted values: `Backlog`, `In Triage`, `Ready for Dev`, `In Dev`, `Blocked`, `PR Raised`, `Ready for Feature PCH`, `Ready for Feature QA`, `In Feature QA`, `Failed Feature QA`, `Ready for Merge`, `Ready to Deploy to Dev01`, `Ready for Dev01 QA`, `In Dev01 QA`, `Failed Dev01 QA`, `Ready to Deploy to prod`, `Closed`
 > [!NOTE]  
 > `projectId` and `teamId` are optional — fall back to `TP_PROJECT_ID` and `TP_TEAM_ID` from config  
-- `create_bug_based_on_card` — Create a bug linked to an existing user story or bug card (card object with id+type, title, bugContent, optional origin, optional projectId, optional teamId)  
+- `create_bug_based_on_card` — Create a bug linked to an existing user story or bug card (card object with id+type, title, bugContent, optional origin, optional releaseId, optional projectId, optional teamId)
 > [!NOTE]  
 > `projectId` and `teamId` are optional — fall back to `TP_PROJECT_ID` and `TP_TEAM_ID` from config  
 - `create_user_story` — Create a new user story (title, optional description, optional featureId, optional releaseId, optional projectId, optional teamId)  

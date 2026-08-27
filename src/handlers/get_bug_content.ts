@@ -19,6 +19,7 @@ export async function handleGetBugContent(tp: TpClient, id: string) {
     id: bug.Id,
     description: '',
     origin: '',
+    release: bug.Release ? { id: bug.Release.Id, name: bug.Release.Name } : null,
   }
 
   try {

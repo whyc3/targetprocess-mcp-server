@@ -465,7 +465,8 @@ server.registerTool(
         3) format the new bug inside html <div> tags with Environment (describes where bug was found, dev, feature, review or uat Environment), Issue Description, Steps to Reproduce, Expected Behavior, Actual Behavior and Attachments sections (note: section titles should be wrapped in <h3> tags, e.g. <h3>Issue Description</h3>);
         4) IF the user specified a team by name (not ID), call "get_teams" to find the matching team and use its ID as teamId;
         5) IF the user specified a project by name (not ID), call "get_projects" to find the matching project and use its ID as projectId;
-        6) add a comment to the card with created bug Id and its Title`,
+        6) IF the user specified a release by name (not ID), call "get_current_releases" to find the matching release and use its ID as releaseId;
+        7) add a comment to the card with created bug Id and its Title`,
     inputSchema: {
       title: z.string()
         .describe('Bug card title that summarizes the problem in concise, descriptive, and actionable manner, enabling a developer to understand the issue without opening the report'),
@@ -496,6 +497,11 @@ server.registerTool(
         .default("Manual QA")
         .optional()
         .describe('Where the bug was found, defaults to "Manual QA" if no origin was specified'),
+      releaseId: z.string()
+        .min(5)
+        .max(9)
+        .optional()
+        .describe('Optional Release ID to assign this bug to — resolve release names via "get_current_releases" first'),
       projectId: z.string()
         .optional()
         .describe('Optional Project ID — if user gave a project name, resolve it via "get_projects" first; defaults to TP_PROJECT_ID from config'),
@@ -504,8 +510,8 @@ server.registerTool(
         .describe('Optional Team ID — if user gave a team name, resolve it via "get_teams" first; defaults to TP_TEAM_ID from config'),
     },
   },
-  async ({ title, card, bugContent, origin, projectId, teamId }) => {
-    const bugResponse = await tp.createBug<TP.Bug>({ title, card, bugContent, origin, projectId, teamId });
+  async ({ title, card, bugContent, origin, releaseId, projectId, teamId }) => {
+    const bugResponse = await tp.createBug<TP.Bug>({ title, card, bugContent, origin, releaseId, projectId, teamId });
 
     if (!bugResponse) {
       return {
@@ -535,7 +541,8 @@ server.registerTool(
         1) IF the user specified a team by name (not ID), call "get_teams" to find the matching team and use its ID as teamId;
         2) IF the user specified a project by name (not ID), call "get_projects" to find the matching project and use its ID as projectId;
         3) IF the user specified a state by name (not ID), call "get_bug_workflows" to find the matching state and use its ID as entityStateId;
-        4) IF the user specified a sprint/iteration by name, call "get_team_iterations" to find the matching iteration and use its ID as teamIterationId;`,
+        4) IF the user specified a sprint/iteration by name, call "get_team_iterations" to find the matching iteration and use its ID as teamIterationId;
+        5) IF the user specified a release by name (not ID), call "get_current_releases" to find the matching release and use its ID as releaseId;`,
     inputSchema: {
       id: z.string()
         .min(5)
@@ -560,6 +567,11 @@ server.registerTool(
       ])
         .optional()
         .describe('Where the bug was found, defaults to "Manual QA"'),
+      releaseId: z.string()
+        .min(5)
+        .max(9)
+        .optional()
+        .describe('Optional Release ID to assign this bug to — resolve release names via "get_current_releases" first'),
       projectId: z.string()
         .optional()
         .describe('Optional Project ID — if user gave a project name, resolve it via "get_projects" first; defaults to TP_PROJECT_ID from config'),
@@ -583,8 +595,8 @@ server.registerTool(
         .describe('Optional Team Iteration (sprint) ID — resolve it via "get_team_iterations" first'),
     },
   },
-  async ({ id, title, bugContent, origin, projectId, teamId, entityStateId, tags, addTags, removeTags, teamIterationId }) =>
-    handleUpdateBug(tp, { id, title, bugContent, origin, projectId, teamId, entityStateId, tags, addTags, removeTags, teamIterationId })
+  async ({ id, title, bugContent, origin, releaseId, projectId, teamId, entityStateId, tags, addTags, removeTags, teamIterationId }) =>
+    handleUpdateBug(tp, { id, title, bugContent, origin, releaseId, projectId, teamId, entityStateId, tags, addTags, removeTags, teamIterationId })
 )
 
 server.registerTool(
@@ -665,6 +677,47 @@ server.registerTool(
 )
 
 server.registerTool(
+  'set_business_value',
+  {
+    title: 'Set Business Value on a Targetprocess card',
+    description: 'Set the Business Value (Priority) on a Targetprocess user story, feature, or epic. Call "get_priorities" first to resolve a priority name to its ID.',
+    inputSchema: {
+      id: z.string()
+        .min(1)
+        .describe('Card ID'),
+      entityType: z.enum(['UserStories', 'Features', 'Epics'])
+        .describe('Targetprocess entity type'),
+      priorityId: z.string()
+        .min(1)
+        .describe('Priority ID, resolved with "get_priorities"'),
+    },
+  },
+  async ({ id, entityType, priorityId }) => {
+    const response = await tp.setBusinessValue<any>({ id, entityType, priorityId })
+    if (!response) {
+      return { content: [{ type: 'text' as const, text: `Failed to set business value on ${entityType} ${id}` }] }
+    }
+    return { content: [{ type: 'text' as const, text: JSON.stringify(response) }] }
+  },
+)
+
+server.registerTool(
+  'get_priorities',
+  {
+    title: 'Get available Business Value / Priority options',
+    description: 'List the priority values configured in Targetprocess. Use this before calling "set_business_value".',
+    inputSchema: {},
+  },
+  async () => {
+    const response = await tp.getPriorities<any>()
+    if (!response) {
+      return { content: [{ type: 'text' as const, text: 'Failed to get priorities' }] }
+    }
+    return { content: [{ type: 'text' as const, text: JSON.stringify(response) }] }
+  },
+)
+
+server.registerTool(
   'create_bug',
   {
     title: 'Create a new bug card',
@@ -674,7 +727,8 @@ server.registerTool(
         1) format the new bug inside html <div> tags with Environment(describes where bug was found, dev, feature, review or uat Environment), Issue Description, Steps to Reproduce, Expected Behavior, Actual Behavior and Attachments sections (note: section titles should be wrapped in <h3> tags, e.g. <h3>Issue Description</h3>, step to reproduce should be wrapped in <ol>);
         2) IF the user specified a team by name (not ID), call "get_teams" to find the matching team and use its ID as teamId;
         3) IF the user specified a project by name (not ID), call "get_projects" to find the matching project and use its ID as projectId;
-        4) IF the user specified a sprint/iteration by name, call "get_team_iterations" to find the matching iteration and use its ID as teamIterationId;`,
+        4) IF the user specified a sprint/iteration by name, call "get_team_iterations" to find the matching iteration and use its ID as teamIterationId;
+        5) IF the user specified a release by name (not ID), call "get_current_releases" to find the matching release and use its ID as releaseId;`,
     inputSchema: {
       title: z.string()
         .describe('Bug card title that summarizes the problem in concise, descriptive, and actionable manner, enabling a developer to understand the issue without opening the report'),
@@ -694,6 +748,11 @@ server.registerTool(
         .default("Manual QA")
         .optional()
         .describe('Where the bug was found, defaults to "Manual QA" if no origin was specified'),
+      releaseId: z.string()
+        .min(5)
+        .max(9)
+        .optional()
+        .describe('Optional Release ID to assign this bug to — resolve release names via "get_current_releases" first'),
       projectId: z.string()
         .optional()
         .describe('Optional Project ID — if user gave a project name, resolve it via "get_projects" first; defaults to TP_PROJECT_ID from config'),
@@ -711,8 +770,8 @@ server.registerTool(
         .describe('Optional Team Iteration (sprint) ID — resolve it via "get_team_iterations" first'),
     },
   },
-  async ({ title, bugContent, origin, projectId, teamId, entityStateId, tags, teamIterationId }) =>
-    handleCreateBug(tp, { title, bugContent, origin, projectId, teamId, entityStateId, tags, teamIterationId })
+  async ({ title, bugContent, origin, releaseId, projectId, teamId, entityStateId, tags, teamIterationId }) =>
+    handleCreateBug(tp, { title, bugContent, origin, releaseId, projectId, teamId, entityStateId, tags, teamIterationId })
 )
 
 server.registerTool(

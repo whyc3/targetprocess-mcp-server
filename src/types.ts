@@ -20,6 +20,7 @@ export interface BugInputSchema {
   title?: string,
   bugContent?: string,
   origin?: string,
+  releaseId?: string,
   projectId?: string,
   teamId?: string,
   entityStateId?: string,

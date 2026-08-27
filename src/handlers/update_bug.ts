@@ -8,6 +8,7 @@ export async function handleUpdateBug(
     title?: string
     bugContent?: string
     origin?: string
+    releaseId?: string
     projectId?: string
     teamId?: string
     entityStateId?: string
