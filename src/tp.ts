@@ -1719,6 +1719,26 @@ export class TpClient {
     }, task) as T
   }
 
+  async updateTask<T>({ id, title, description, entityStateId }: { id: string, title?: string, description?: string, entityStateId?: string }): Promise<T> {
+    const task: Record<string, any> = { "Id": id }
+
+    if (title !== undefined) task["Name"] = title
+    if (description !== undefined) task["Description"] = description
+    if (entityStateId !== undefined) task["EntityState"] = { "Id": entityStateId }
+
+    return this.post<any, T>({
+      pathParam: ["Tasks"],
+      param: { "format": "json" },
+    }, task) as T
+  }
+
+  async deleteTask<T>(taskId: string): Promise<TpResult<T>> {
+    return this.del<T>({
+      pathParam: ["Tasks", taskId],
+      param: { "format": "json" },
+    })
+  }
+
   async logTime<T>({
     entityId,
     entityType,

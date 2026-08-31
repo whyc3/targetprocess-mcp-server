@@ -52,6 +52,8 @@ import { handleGetEpicContent } from "./handlers/get_epic_content.js";
 import { handleUpdateEpic } from "./handlers/update_epic.js";
 import { handleGetEpicFeatures } from "./handlers/get_epic_features.js";
 import { handleCreateTask } from "./handlers/create_task.js";
+import { handleUpdateTaskById } from "./handlers/update_task_by_id.js";
+import { handleDeleteTaskById } from "./handlers/delete_task_by_id.js";
 import { handleUpdateBug } from "./handlers/update_bug.js";
 import { handleGetInProgressTasksAndBugs } from "./handlers/get_in_progress_tasks_and_bugs.js";
 import { handleListMyUserStories } from "./handlers/list_my_user_stories.js";
@@ -2241,6 +2243,47 @@ server.registerTool(
   },
   async ({ title, userStoryId, description }) =>
     handleCreateTask(tp, { title, userStoryId, description })
+)
+
+server.registerTool(
+  'update_task_by_id',
+  {
+    title: 'Update task by ID',
+    description: `Update a Targetprocess Task by its ID. Pass only fields that should change.
+      If changing the task state by name, resolve it to an ID with the appropriate workflow tool first.`,
+    inputSchema: {
+      id: z.string()
+        .min(5)
+        .max(9)
+        .describe('Task ID (e.g. 145789)'),
+      title: z.string()
+        .optional()
+        .describe('Updated task title'),
+      description: z.string()
+        .optional()
+        .describe('Updated task description (format as HTML or plain text)'),
+      entityStateId: z.string()
+        .optional()
+        .describe('Updated task Entity State ID'),
+    },
+  },
+  async ({ id, title, description, entityStateId }) =>
+    handleUpdateTaskById(tp, { id, title, description, entityStateId })
+)
+
+server.registerTool(
+  'delete_task_by_id',
+  {
+    title: 'Delete task by ID',
+    description: 'Delete a Targetprocess Task by its ID.',
+    inputSchema: {
+      id: z.string()
+        .min(5)
+        .max(9)
+        .describe('Task ID (e.g. 145789)'),
+    },
+  },
+  async ({ id }) => handleDeleteTaskById(tp, id)
 )
 
 server.registerTool(
