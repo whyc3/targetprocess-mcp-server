@@ -1,6 +1,7 @@
 import { JSDOM } from 'jsdom'
 import type { TpClient } from '../tp.js'
 import type * as TP from '../types.js'
+import { config } from '../config.js'
 
 export async function handleGetBugContent(tp: TpClient, id: string) {
   const bug = await tp.getBug<TP.Bug>(id)
@@ -33,7 +34,8 @@ export async function handleGetBugContent(tp: TpClient, id: string) {
   }
 
   try {
-    bugResult.origin = bug.CustomFields?.find((field) => field?.Value === 'Origin')?.Value
+    const originFieldName = config.tp.bugOriginField || 'Origin'
+    bugResult.origin = bug.CustomFields?.find((field) => field?.Name === originFieldName)?.Value || ''
   } catch (error) {
     console.error('Error parsing bug origin:', error)
   }

@@ -518,7 +518,17 @@ server.registerTool(
     },
   },
   async ({ title, card, bugContent, origin, releaseId, projectId, teamId }) => {
-    const bugResponse = await tp.createBug<TP.Bug>({ title, card, bugContent, origin, releaseId, projectId, teamId });
+    let bugResponse: TP.Bug
+    try {
+      bugResponse = await tp.createBug<TP.Bug>({ title, card, bugContent, origin, releaseId, projectId, teamId });
+    } catch (error) {
+      return {
+        content: [{
+          type: 'text' as const,
+          text: `Failed to create bug "${title}": ${error instanceof Error ? error.message : String(error)}`,
+        }],
+      };
+    }
 
     if (!bugResponse) {
       return {

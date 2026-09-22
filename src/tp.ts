@@ -166,7 +166,7 @@ export class TpClient {
     }
   }
 
-  private async post<T, U>(params: TpClientParameters, data: T): Promise<U | null> {
+  private async post<T, U>(params: TpClientParameters, data: T, options: { throwOnError?: boolean } = {}): Promise<U | null> {
     params.param["access_token"] = this.token
     let _url = this.params(params)
     console.error(JSON.stringify({ "TP_POST_URL": this.redact(_url) }))
@@ -177,12 +177,16 @@ export class TpClient {
         headers: this.headers,
         body: JSON.stringify(data),
       });
+      const responseBody = await response.text()
       if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
+        const message = `Targetprocess API error (HTTP ${response.status}): ${responseBody || response.statusText}`
+        if (options.throwOnError) throw new Error(message)
+        throw new Error(message)
       }
-      return (await response.json()) as U
+      return (responseBody ? JSON.parse(responseBody) : null) as U
     } catch (error) {
       console.error("Error making TP request:", error);
+      if (options.throwOnError) throw error
       return null;
     }
   }
@@ -359,16 +363,11 @@ export class TpClient {
   }
 
   async createBug<T>({ title, card, bugContent, origin = "Manual QA", releaseId, projectId, teamId }: { title: string, card: { id: string, type: "UserStory" | "Bug" | "Feature" }, bugContent: string, origin?: string, releaseId?: string, projectId?: string, teamId?: string }): Promise<T> {
-    const bug = {
+    const bug: Record<string, any> = {
       "Name": title,
       "Project": {
         "Id": projectId || config.tp.projectId
       },
-      "customFields": [{
-        "name": "Origin",
-        "type": "DropDown",
-        "value": origin
-      }],
       "assignedTeams": [{
         "team": {
           "id": teamId || config.tp.teamId
@@ -376,6 +375,12 @@ export class TpClient {
       }],
       "Description": bugContent,
     } as any
+
+    if (config.tp.bugOriginField) bug["customFields"] = [{
+      "name": config.tp.bugOriginField,
+      "type": "DropDown",
+      "value": origin
+    }]
 
     if (releaseId) bug["Release"] = { "Id": releaseId }
 
@@ -388,7 +393,7 @@ export class TpClient {
     return this.post<any, T>({
       pathParam: ["bugs"],
       param: { "format": "json" },
-    }, bug) as T
+    }, bug, { throwOnError: true }) as T
   }
 
   async updateUserStorySubState<T>({
@@ -460,8 +465,8 @@ export class TpClient {
 
     if (title) bug["Name"] = title
     if (bugContent) bug["Description"] = bugContent
-    if (origin) bug["customFields"] = [{
-      "name": "Origin",
+    if (origin && config.tp.bugOriginField) bug["customFields"] = [{
+      "name": config.tp.bugOriginField,
       "type": "DropDown",
       "value": origin
     }]
@@ -490,11 +495,6 @@ export class TpClient {
       "Project": {
         "Id": projectId || config.tp.projectId
       },
-      "customFields": [{
-        "name": "Origin",
-        "type": "DropDown",
-        "value": origin
-      }],
       "assignedTeams": [{
         "team": {
           "id": teamId || config.tp.teamId
@@ -502,6 +502,12 @@ export class TpClient {
       }],
       "Description": bugContent,
     }
+
+    if (config.tp.bugOriginField) bug["customFields"] = [{
+      "name": config.tp.bugOriginField,
+      "type": "DropDown",
+      "value": origin
+    }]
 
     if (releaseId) bug["Release"] = { "Id": releaseId }
     if (entityStateId) bug["EntityState"] = { "Id": entityStateId }
@@ -511,7 +517,7 @@ export class TpClient {
     return this.post<any, T>({
       pathParam: ["bugs"],
       param: { "format": "json" },
-    }, bug) as T
+    }, bug, { throwOnError: true }) as T
   }
 
   async createUserStory<T>({ title, description, featureId, releaseId, projectId, teamId, tags, teamIterationId }: { title: string, description?: string, featureId?: string, releaseId?: string, projectId?: string, teamId?: string, tags?: string, teamIterationId?: string }): Promise<T> {
@@ -704,7 +710,7 @@ export class TpClient {
   }
 
   async createBugBasedOnUserStory<T>(title: string, userStoryId: string, bugContent: string): Promise<T> {
-    const bug = {
+    const bug: Record<string, any> = {
       "Name": title,
       "Project": {
         "Id": config.tp.projectId
@@ -712,11 +718,6 @@ export class TpClient {
       "UserStory": {
         "Id": userStoryId
       },
-      "customFields": [{
-        "name": "Origin",
-        "type": "DropDown",
-        "value": "Manual QA"
-      }],
       "assignedTeams": [{
         "team": {
           "id": config.tp.teamId
@@ -724,6 +725,12 @@ export class TpClient {
       }],
       "Description": bugContent,
     }
+
+    if (config.tp.bugOriginField) bug["customFields"] = [{
+      "name": config.tp.bugOriginField,
+      "type": "DropDown",
+      "value": "Manual QA"
+    }]
 
     return this.post<any, T>({
       pathParam: ["bugs"],

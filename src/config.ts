@@ -7,6 +7,7 @@ export const config = {
     ownerId: process.env.TP_OWNER_ID || "1504",
     projectId: process.env.TP_PROJECT_ID || "",
     teamId: process.env.TP_TEAM_ID || "",
+    bugOriginField: process.env.TP_BUG_ORIGIN_FIELD || "",
 
     processId: process.env.TP_PROCESS_ID || "89",
     userStoryWorkflowId: process.env.TP_USER_STORY_WORKFLOW_ID || "",

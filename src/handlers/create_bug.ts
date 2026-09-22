@@ -15,7 +15,17 @@ export async function handleCreateBug(
     teamIterationId?: string
   },
 ) {
-  const bugResponse = await tp.createBugOnly<TP.Bug>(params)
+  let bugResponse: TP.Bug
+  try {
+    bugResponse = await tp.createBugOnly<TP.Bug>(params)
+  } catch (error) {
+    return {
+      content: [{
+        type: 'text' as const,
+        text: `Failed to create bug "${params.title}": ${error instanceof Error ? error.message : String(error)}`,
+      }],
+    }
+  }
 
   if (!bugResponse) {
     return {

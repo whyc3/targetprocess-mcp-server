@@ -41,6 +41,17 @@ describe('handleCreateBug', () => {
     expect(result.content[0].text).toContain('Failed to create bug "Login fails"')
   })
 
+  it('returns Targetprocess error details when creation fails', async () => {
+    vi.mocked(mockTp.createBugOnly).mockRejectedValue(
+      new Error('Targetprocess API error (HTTP 422): {"message":"Project is required"}'),
+    )
+
+    const result = await handleCreateBug(mockTp, { title: 'Login fails', bugContent: '<div>Steps</div>' })
+
+    expect(result.content[0].text).toContain('HTTP 422')
+    expect(result.content[0].text).toContain('Project is required')
+  })
+
   it('calls createBugOnly with all params', async () => {
     vi.mocked(mockTp.createBugOnly).mockResolvedValue({ Id: 1 } as any)
 
