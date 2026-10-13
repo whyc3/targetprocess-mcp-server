@@ -168,7 +168,7 @@ describe('TpClient test plan hierarchy operations', () => {
       movedTestCaseIds: ['356203'],
       retainedInSourceTestCaseIds: [],
     })
-    expect(fetchMock).toHaveBeenCalledTimes(7)
+    expect(fetchMock).toHaveBeenCalledTimes(6)
   })
 
   it('does not mutate when a requested test case is not directly in the source plan', async () => {
@@ -226,11 +226,12 @@ describe('TpClient test plan hierarchy operations', () => {
       movedTestCaseIds: [],
       retainedInSourceTestCaseIds: ['356203'],
     })
-    expect(result.reason).toContain('no destination links were added')
-    expect(fetchMock).toHaveBeenCalledTimes(4)
+    expect(result.reason).toContain('no destination link was added')
+    expect(fetchMock).toHaveBeenCalledTimes(3)
   })
 
   it('restores the source link when destination assignment fails after unlinking', async () => {
+    let restoredToSource = false
     const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
       const decodedUrl = decodeURIComponent(url)
       if (decodedUrl.includes('/testPlans/356201/testcases/')) {
@@ -242,12 +243,13 @@ describe('TpClient test plan hierarchy operations', () => {
       if (decodedUrl.includes('/testPlans/356201/testCases/')) return jsonResponse({})
       if (decodedUrl.includes('/testCases/356203/')) {
         if (init?.method === 'GET') {
-          return jsonResponse({ Id: 356203, TestPlans: { Items: [] } })
+          return jsonResponse({ Id: 356203, TestPlans: { Items: restoredToSource ? [{ Id: 356201 }] : [] } })
         }
         expect(init?.method).toBe('POST')
         const body = String(init?.body)
         if (body.includes('356202')) return new Response('Destination assignment failed', { status: 500 })
         expect(body).toContain('356201')
+        restoredToSource = true
         return jsonResponse({ Id: 356203 })
       }
       throw new Error(`Unexpected URL: ${decodedUrl}`)

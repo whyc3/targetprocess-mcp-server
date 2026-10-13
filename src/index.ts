@@ -37,9 +37,11 @@ import { handleCreateEpic } from "./handlers/create_epic.js";
 import { handleGetTestPlanById } from "./handlers/get_test_plan_by_id.js";
 import { handleCreateNestedTestPlan } from "./handlers/create_nested_test_plan.js";
 import { handleMoveTestCasesToSubPlan } from "./handlers/move_test_cases_to_sub_plan.js";
+import { handleMoveTestCasesBetweenSiblingPlans } from "./handlers/move_test_cases_between_sibling_plans.js";
 import { handleBatchMoveTestCasesToSubPlan } from "./handlers/batch_move_test_cases_to_sub_plan.js";
 import { handleGetTestCaseTestPlans } from "./handlers/get_test_case_test_plans.js";
 import { handleUnlinkTestCasesFromTestPlan } from "./handlers/unlink_test_cases_from_test_plan.js";
+import { handleUnlinkChildTestPlanFromParent } from "./handlers/unlink_child_test_plan_from_parent.js";
 import { handleGetTestPlanTestCasesById } from "./handlers/get_test_plan_test_cases_by_id.js";
 import { handleGetTestPlanTestCasesWithStepsById } from "./handlers/get_test_plan_test_cases_with_steps_by_id.js";
 import { handleGetTestCaseById } from "./handlers/get_test_case_by_id.js";
@@ -1331,6 +1333,22 @@ server.registerTool(
 )
 
 server.registerTool(
+  'unlink_child_test_plan_from_parent',
+  {
+    title: 'Unlink a child test plan from its parent',
+    description: 'Remove only one direct parent-to-child Test Plan association. Both plans and all test cases remain. Defaults to a dry run; execution verifies that the link is gone and the child plan and its direct cases remain.',
+    inputSchema: {
+      parentTestPlanId: z.string().regex(/^\d{5,9}$/).describe('Parent test plan ID whose direct child link will be removed'),
+      childTestPlanId: z.string().regex(/^\d{5,9}$/).describe('Existing direct child test plan ID to detach'),
+      dryRun: z.boolean().default(true).optional()
+        .describe('Validate the link without changing Targetprocess. Defaults to true.'),
+    },
+  },
+  async ({ parentTestPlanId, childTestPlanId, dryRun }) =>
+    handleUnlinkChildTestPlanFromParent(tp, { parentTestPlanId, childTestPlanId, dryRun }),
+)
+
+server.registerTool(
   'move_test_cases_to_sub_plan',
   {
     title: 'Move test cases into a sub plan',
@@ -1359,10 +1377,29 @@ server.registerTool(
 )
 
 server.registerTool(
+  'move_test_cases_between_sibling_plans',
+  {
+    title: 'Move test cases between sibling plans',
+    description: 'Move explicitly selected direct case memberships between two existing direct children of the same parent plan. Does not delete or copy test cases. Defaults to a dry run; execution unlinks and verifies each source link before assigning and verifying its destination, and attempts a verified source restore on assignment failure. Move cases before detaching either sibling from the parent.',
+    inputSchema: {
+      parentTestPlanId: z.string().regex(/^\d{5,9}$/).describe('Shared direct parent test plan ID'),
+      sourceTestPlanId: z.string().regex(/^\d{5,9}$/).describe('Sibling plan currently containing the selected direct cases'),
+      destinationTestPlanId: z.string().regex(/^\d{5,9}$/).describe('Destination sibling plan'),
+      testCaseIds: z.array(z.string().regex(/^\d{5,9}$/)).min(1).max(100)
+        .describe('Explicit test case IDs to move; at most 100 per call'),
+      dryRun: z.boolean().default(true).optional()
+        .describe('Validate without changing Targetprocess. Defaults to true.'),
+    },
+  },
+  async ({ parentTestPlanId, sourceTestPlanId, destinationTestPlanId, testCaseIds, dryRun }) =>
+    handleMoveTestCasesBetweenSiblingPlans(tp, { parentTestPlanId, sourceTestPlanId, destinationTestPlanId, testCaseIds, dryRun }),
+)
+
+server.registerTool(
   'batch_move_test_cases_to_sub_plan',
   {
     title: 'Batch move test cases into a sub plan',
-    description: 'Move explicitly selected test cases from a parent plan into one nested sub plan in bounded sequential batches. Each batch removes and verifies every source-plan membership before adding and verifying destination memberships. Stops immediately at the first incomplete batch; it never continues by copying memberships.',
+    description: 'Move explicitly selected test cases from a parent plan into one nested sub plan in bounded sequential batches. Within each batch, each case is unlinked and verified before its destination link is added and verified. Stops at the first incomplete case or batch; previously moved cases remain moved and are reported. Never copies test cases.',
     inputSchema: {
       sourceTestPlanId: z.string().min(5).max(9).describe('Current parent test plan ID'),
       destinationTestPlanId: z.string().min(5).max(9).describe('Existing nested destination test plan ID'),

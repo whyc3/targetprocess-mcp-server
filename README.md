@@ -115,8 +115,10 @@ Cards — Write
 > [!NOTE]
 > requires `TP_PROJECT_ID`,
 - `create_nested_test_plan` — Create a suite/module sub plan below an existing test plan (title, parentTestPlanId, optional description)
+- `unlink_child_test_plan_from_parent` — Detach one direct child plan from one parent without deleting either plan or any cases (parentTestPlanId, childTestPlanId, optional dryRun; defaults to `true`). Verifies the child plan and its direct cases remain.
 - `move_test_cases_to_sub_plan` — Safely move selected direct test cases from a parent plan to one of its sub plans (sourceTestPlanId, destinationTestPlanId, testCaseIds, optional dryRun; defaults to `true`)
-  > The tool validates the hierarchy and membership before any change. When executed, it adds the destination link first, then removes only the source-plan link—test cases are never deleted.
+  > The tool validates the hierarchy and membership before any change. When executed, it removes and verifies each source-plan link before adding and verifying its destination link; test cases are never deleted.
+- `move_test_cases_between_sibling_plans` — Move selected direct case memberships between two direct children of a specified parent (parentTestPlanId, sourceTestPlanId, destinationTestPlanId, testCaseIds, optional dryRun; defaults to `true`). Each case keeps its ID; stops on failed verification and attempts to restore its source link after a failed destination assignment. Move needed cases before detaching the source sibling from their shared parent.
 
 Test Case Workflows
 - `get_test_plan_by_id` — Get a Targetprocess Test Plan by ID, including plain-text description, state, project, linked card, and dates (id)
@@ -310,7 +312,8 @@ npx vitest            # watch mode
 | `my_work_tools.test.ts` | `get_in_progress_tasks_and_bugs`, `list_my_user_stories`, `list_my_bugs`, `log_time`, `get_my_time_logs` |
 | `entity_tools.test.ts` | `get_feature_user_stories`, `get_user_story_bugs`, `get_card_current_status` |
 | `test_plan_tools.test.ts` | `get_test_plan_by_id`, `get_test_plan_test_cases_by_id`, `get_test_cases_by_id`, `get_test_plan_test_cases_with_steps_by_id`, `get_test_case_by_id`, `update_test_case_by_id`, `delete_test_case_by_id`, `add_test_case_step_by_id`, `update_test_case_step_by_id`, `delete_test_case_step_by_id` |
-| `test_plan_hierarchy_tools.test.ts` | `create_nested_test_plan`, `move_test_cases_to_sub_plan` |
+| `test_plan_hierarchy_tools.test.ts` | `create_nested_test_plan`, `move_test_cases_to_sub_plan`, `batch_move_test_cases_to_sub_plan`, `unlink_test_cases_from_test_plan` |
+| `test_plan_reorganization_tools.test.ts` | `unlink_child_test_plan_from_parent`, `move_test_cases_between_sibling_plans` |
 | `creation_tools.test.ts` | `create_bug`, `create_user_story`, `create_feature`, `create_task`, `update_bug`, `update_user_story_state` |
 | `my_work_tools.test.ts` | `get_in_progress_tasks_and_bugs`, `list_my_user_stories`, `list_my_bugs`, `log_time`, `get_my_time_logs` |
 | `entity_tools.test.ts` | `get_feature_user_stories`, `get_user_story_bugs`, `get_card_current_status` |

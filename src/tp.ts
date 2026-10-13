@@ -27,12 +27,15 @@ export type TestCaseMoveResult = {
   dryRun: boolean
   sourceTestPlanId: string
   destinationTestPlanId: string
+  parentTestPlanId?: string
   requestedTestCaseIds: string[]
   eligibleTestCaseIds: string[]
   missingFromSourceTestCaseIds: string[]
+  alreadyInDestinationTestCaseIds: string[]
   canMove: boolean
   reason?: string
   movedTestCaseIds: string[]
+  unprocessedTestCaseIds: string[]
   failedToAssign: Array<{ id: string, reason: string }>
   retainedInSourceTestCaseIds: string[]
   restoredToSourceTestCaseIds: string[]
@@ -41,6 +44,19 @@ export type TestCaseMoveResult = {
 }
 
 export type TestCasePlanLink = { id: string, name?: string }
+
+export type TestPlanHierarchyUnlinkResult = {
+  dryRun: boolean
+  parentTestPlanId: string
+  childTestPlanId: string
+  canUnlink: boolean
+  unlinked: boolean
+  directTestCaseCountBefore?: number
+  missingDirectTestCaseIdsAfter: string[]
+  httpStatus?: number
+  responseBody?: string
+  reason?: string
+}
 
 export type TestCaseUnlinkResult = {
   dryRun: boolean
@@ -1110,6 +1126,96 @@ export class TpClient {
     }) as T
   }
 
+  async unlinkChildTestPlanFromParent({
+    parentTestPlanId,
+    childTestPlanId,
+    dryRun = true,
+  }: {
+    parentTestPlanId: string
+    childTestPlanId: string
+    dryRun?: boolean
+  }): Promise<TestPlanHierarchyUnlinkResult> {
+    const result: TestPlanHierarchyUnlinkResult = {
+      dryRun, parentTestPlanId, childTestPlanId, canUnlink: false, unlinked: false,
+      missingDirectTestCaseIdsAfter: [],
+    }
+
+    if (parentTestPlanId === childTestPlanId || !/^\d+$/.test(parentTestPlanId) || !/^\d+$/.test(childTestPlanId)) {
+      result.reason = 'Provide different numeric parent and child test plan IDs.'
+      return result
+    }
+
+    const parent = await this.getTestPlan<Partial<TestPlan>>(parentTestPlanId)
+    const child = await this.getTestPlan<Partial<TestPlan>>(childTestPlanId)
+    if (!parent || !child || String(parent.Id) !== parentTestPlanId || String(child.Id) !== childTestPlanId) {
+      result.reason = 'Unable to verify that both test plans exist.'
+      return result
+    }
+
+    const children = await this.getChildTestPlanNodes(parentTestPlanId)
+    if (!children) {
+      result.reason = `Unable to read direct child plans of ${parentTestPlanId}.`
+      return result
+    }
+    if (!children.some((plan) => plan.id === childTestPlanId)) {
+      result.reason = `Test plan ${childTestPlanId} is not directly linked beneath ${parentTestPlanId}.`
+      return result
+    }
+
+    const before = await this.getAllOrNull<TestCase>({
+      pathParam: ['testPlans', childTestPlanId, 'testcases'],
+      param: { format: 'json' },
+    })
+    if (!before) {
+      result.reason = `Unable to read direct test cases in ${childTestPlanId}.`
+      return result
+    }
+    result.directTestCaseCountBefore = before.length
+    result.canUnlink = true
+    if (dryRun) return result
+
+    // Delete only the association collection entry, never /testPlans/{id}.
+    const unassigned = await this.del<unknown>({
+      pathParam: ['testPlans', parentTestPlanId, 'ChildTestPlans'],
+      param: { childrenIds: childTestPlanId },
+    })
+    if (!unassigned.ok) {
+      result.httpStatus = unassigned.status
+      result.responseBody = unassigned.body
+      result.reason = `Targetprocess could not unlink test plan ${childTestPlanId} from ${parentTestPlanId}.`
+      return result
+    }
+
+    const remainingChildren = await this.getChildTestPlanNodes(parentTestPlanId)
+    const remainingParent = await this.getTestPlan<Partial<TestPlan>>(parentTestPlanId)
+    const remainingChild = await this.getTestPlan<Partial<TestPlan>>(childTestPlanId)
+    const after = await this.getAllOrNull<TestCase>({
+      pathParam: ['testPlans', childTestPlanId, 'testcases'],
+      param: { format: 'json' },
+    })
+
+    if (!remainingChildren || !remainingParent || !remainingChild || !after) {
+      result.reason = 'Targetprocess returned success, but plan and case preservation could not be verified.'
+      return result
+    }
+
+    const afterIds = new Set(after.map((testCase) => String(testCase.Id)))
+    result.missingDirectTestCaseIdsAfter = before
+      .map((testCase) => String(testCase.Id))
+      .filter((id) => !afterIds.has(id))
+
+    if (remainingChildren.some((plan) => plan.id === childTestPlanId)
+      || String(remainingParent.Id) !== parentTestPlanId
+      || String(remainingChild.Id) !== childTestPlanId
+      || result.missingDirectTestCaseIdsAfter.length > 0) {
+      result.reason = 'Targetprocess returned success, but the unlink or plan/case preservation could not be verified.'
+      return result
+    }
+
+    result.unlinked = true
+    return result
+  }
+
   async getTestPlanTestCases<T>(testPlanId: string): Promise<T> {
     const rootTestPlan = await this.getTestPlan<TestPlan>(testPlanId)
     const rootTestPlanNode = this.toTestPlanNode(rootTestPlan, testPlanId)
@@ -1157,16 +1263,50 @@ export class TpClient {
     testCaseIds: string[]
     dryRun?: boolean
   }): Promise<TestCaseMoveResult> {
+    return this.moveTestCases({ sourceTestPlanId, destinationTestPlanId, testCaseIds, dryRun }, { kind: 'descendant' })
+  }
+
+  async moveTestCasesBetweenSiblingPlans({
+    parentTestPlanId,
+    sourceTestPlanId,
+    destinationTestPlanId,
+    testCaseIds,
+    dryRun = true,
+  }: {
+    parentTestPlanId: string
+    sourceTestPlanId: string
+    destinationTestPlanId: string
+    testCaseIds: string[]
+    dryRun?: boolean
+  }): Promise<TestCaseMoveResult> {
+    return this.moveTestCases(
+      { sourceTestPlanId, destinationTestPlanId, testCaseIds, dryRun },
+      { kind: 'sibling', parentTestPlanId },
+    )
+  }
+
+  private async moveTestCases(
+    { sourceTestPlanId, destinationTestPlanId, testCaseIds, dryRun }: {
+      sourceTestPlanId: string
+      destinationTestPlanId: string
+      testCaseIds: string[]
+      dryRun: boolean
+    },
+    relation: { kind: 'descendant' } | { kind: 'sibling', parentTestPlanId: string },
+  ): Promise<TestCaseMoveResult> {
     const requestedTestCaseIds = [...new Set(testCaseIds.map(String))]
     const result: TestCaseMoveResult = {
       dryRun,
       sourceTestPlanId,
       destinationTestPlanId,
+      ...(relation.kind === 'sibling' ? { parentTestPlanId: relation.parentTestPlanId } : {}),
       requestedTestCaseIds,
       eligibleTestCaseIds: [],
       missingFromSourceTestCaseIds: [],
+      alreadyInDestinationTestCaseIds: [],
       canMove: false,
       movedTestCaseIds: [],
+      unprocessedTestCaseIds: [],
       failedToAssign: [],
       retainedInSourceTestCaseIds: [],
       restoredToSourceTestCaseIds: [],
@@ -1181,6 +1321,10 @@ export class TpClient {
 
     if (requestedTestCaseIds.length !== testCaseIds.length) {
       result.reason = 'Provide each test case ID only once.'
+      return result
+    }
+    if (requestedTestCaseIds.length === 0) {
+      result.reason = 'Provide at least one test case ID.'
       return result
     }
 
@@ -1201,35 +1345,81 @@ export class TpClient {
       return result
     }
 
-    const isDescendant = await this.isTestPlanDescendant(sourceTestPlanId, destinationTestPlanId)
-    if (isDescendant === null) {
-      result.reason = `Unable to verify that test plan ${destinationTestPlanId} is nested below ${sourceTestPlanId}.`
-      return result
-    }
-    if (!isDescendant) {
-      result.reason = `Destination test plan ${destinationTestPlanId} is not a sub plan of ${sourceTestPlanId}.`
-      return result
+    if (relation.kind === 'sibling') {
+      const { parentTestPlanId } = relation
+      if (!/^\d+$/.test(parentTestPlanId) || parentTestPlanId === sourceTestPlanId || parentTestPlanId === destinationTestPlanId) {
+        result.reason = 'Provide a different numeric shared parent test plan ID.'
+        return result
+      }
+      const parent = await this.getTestPlan<Partial<TestPlan>>(parentTestPlanId)
+      const children = parent ? await this.getChildTestPlanNodes(parentTestPlanId) : null
+      if (!parent || String(parent.Id) !== parentTestPlanId || !children) {
+        result.reason = `Unable to verify the direct child plans of ${parentTestPlanId}.`
+        return result
+      }
+      if (!children.some((plan) => plan.id === sourceTestPlanId)
+        || !children.some((plan) => plan.id === destinationTestPlanId)) {
+        result.reason = 'Source and destination must both be direct child plans of the specified parent.'
+        return result
+      }
+
+      const destinationTestCases = await this.getAllOrNull<TestCase>({
+        pathParam: ['testPlans', destinationTestPlanId, 'testcases'],
+        param: { format: 'json' },
+      })
+      if (!destinationTestCases) {
+        result.reason = `Unable to read direct test cases in destination test plan ${destinationTestPlanId}.`
+        return result
+      }
+      const destinationIds = new Set(destinationTestCases.map((testCase) => String(testCase.Id)))
+      result.alreadyInDestinationTestCaseIds = requestedTestCaseIds.filter((id) => destinationIds.has(id))
+      if (result.alreadyInDestinationTestCaseIds.length > 0) {
+        result.reason = 'Selected test cases already linked to the destination must be resolved before moving.'
+        return result
+      }
+    } else {
+      const isDescendant = await this.isTestPlanDescendant(sourceTestPlanId, destinationTestPlanId)
+      if (isDescendant === null) {
+        result.reason = `Unable to verify that test plan ${destinationTestPlanId} is nested below ${sourceTestPlanId}.`
+        return result
+      }
+      if (!isDescendant) {
+        result.reason = `Destination test plan ${destinationTestPlanId} is not a sub plan of ${sourceTestPlanId}.`
+        return result
+      }
     }
 
     result.canMove = true
     if (dryRun) return result
 
-    // Assignment POSTs are additive in Targetprocess. Never add a
-    // destination link until every source link was removed and verified.
-    const unlinkResult = await this.unlinkTestCasesFromTestPlan({
-      testPlanId: sourceTestPlanId,
-      testCaseIds: requestedTestCaseIds,
-      dryRun: false,
-    })
+    // POST assignments are additive. Move one case at a time, never assigning
+    // a destination until its own source link was removed and verified.
+    for (const [index, testCaseId] of requestedTestCaseIds.entries()) {
+      // Direct membership was checked during preflight; avoid listing every
+      // source case again for each selected case.
+      const unassigned = await this.removeTestCaseLinksFromPlan(sourceTestPlanId, [testCaseId])
+      if (!unassigned.ok) {
+        result.retainedInSourceTestCaseIds.push(testCaseId)
+        result.unprocessedTestCaseIds = requestedTestCaseIds.slice(index + 1)
+        result.reason = `The source link to ${sourceTestPlanId} could not be removed for case ${testCaseId}; no destination link was added for it. No test cases were deleted or copied.`
+        return result
+      }
 
-    if (unlinkResult.unlinkedTestCaseIds.length !== requestedTestCaseIds.length) {
-      result.retainedInSourceTestCaseIds = unlinkResult.retainedInTestPlanTestCaseIds
-      result.unverifiedMoveTestCaseIds = unlinkResult.unverifiedTestCaseIds
-      result.reason = `The source link to ${sourceTestPlanId} could not be removed and verified for every selected test case, so no destination links were added. No test cases were deleted or copied.`
-      return result
-    }
+      const afterUnlink = await this.getTestCasePlanIds(testCaseId)
+      if (!afterUnlink || afterUnlink.has(sourceTestPlanId)) {
+        if (afterUnlink?.has(sourceTestPlanId)) {
+          result.retainedInSourceTestCaseIds.push(testCaseId)
+        } else {
+          result.unverifiedMoveTestCaseIds.push(testCaseId)
+          const restored = await this.restoreTestCaseToPlan(testCaseId, sourceTestPlanId)
+          if (restored === 'restored') result.restoredToSourceTestCaseIds.push(testCaseId)
+          else if (restored === 'unassigned') result.unassignedWithoutDestinationTestCaseIds.push(testCaseId)
+        }
+        result.unprocessedTestCaseIds = requestedTestCaseIds.slice(index + 1)
+        result.reason = `The source link to ${sourceTestPlanId} could not be verified as removed for case ${testCaseId}; no destination link was added for it. No test cases were deleted or copied.`
+        return result
+      }
 
-    for (const testCaseId of requestedTestCaseIds) {
       const assigned = await this.post<any, unknown>({
         pathParam: ["testCases", testCaseId],
         param: { "format": "json" },
@@ -1237,33 +1427,47 @@ export class TpClient {
         "TestPlans": { "Items": [{ "Id": destinationTestPlanId }] },
       })
 
+      const planIds = await this.getTestCasePlanIds(testCaseId)
+      if (planIds?.has(destinationTestPlanId) && !planIds.has(sourceTestPlanId)) {
+        result.movedTestCaseIds.push(testCaseId)
+        continue
+      }
+
       if (!assigned) {
         result.failedToAssign.push({ id: testCaseId, reason: `Could not assign to test plan ${destinationTestPlanId}.` })
-        const restored = await this.post<any, unknown>({
-          pathParam: ["testCases", testCaseId],
-          param: { "format": "json" },
-        }, {
-          "TestPlans": { "Items": [{ "Id": sourceTestPlanId }] },
-        })
-
-        if (restored) result.restoredToSourceTestCaseIds.push(testCaseId)
-        else result.unassignedWithoutDestinationTestCaseIds.push(testCaseId)
-        continue
+        const restored = await this.restoreTestCaseToPlan(testCaseId, sourceTestPlanId)
+        if (restored === 'restored') result.restoredToSourceTestCaseIds.push(testCaseId)
+        else if (restored === 'unassigned') result.unassignedWithoutDestinationTestCaseIds.push(testCaseId)
+        else result.unverifiedMoveTestCaseIds.push(testCaseId)
+        result.unprocessedTestCaseIds = requestedTestCaseIds.slice(index + 1)
+        result.reason = 'Destination assignment failed; source-link restoration was attempted and verified where possible.'
+        return result
       }
 
-      const planIds = await this.getTestCasePlanIds(testCaseId)
-      if (!planIds || !planIds.has(destinationTestPlanId) || planIds.has(sourceTestPlanId)) {
-        result.unverifiedMoveTestCaseIds.push(testCaseId)
-        continue
+      result.unverifiedMoveTestCaseIds.push(testCaseId)
+      if (planIds && !planIds.has(destinationTestPlanId) && !planIds.has(sourceTestPlanId)) {
+        const restored = await this.restoreTestCaseToPlan(testCaseId, sourceTestPlanId)
+        if (restored === 'restored') result.restoredToSourceTestCaseIds.push(testCaseId)
+        else if (restored === 'unassigned') result.unassignedWithoutDestinationTestCaseIds.push(testCaseId)
       }
-
-      result.movedTestCaseIds.push(testCaseId)
+      result.unprocessedTestCaseIds = requestedTestCaseIds.slice(index + 1)
+      result.reason = 'Destination assignment could not be verified; stopped before moving further cases.'
+      return result
     }
 
-    if (result.failedToAssign.length > 0 || result.unverifiedMoveTestCaseIds.length > 0) {
-      result.reason = 'One or more test cases could not be verified as moved. Review the per-case result before continuing.'
-    }
     return result
+  }
+
+  private async restoreTestCaseToPlan(testCaseId: string, testPlanId: string): Promise<'restored' | 'unassigned' | 'unverified'> {
+    await this.post<any, unknown>({
+      pathParam: ['testCases', testCaseId],
+      param: { format: 'json' },
+    }, {
+      TestPlans: { Items: [{ Id: testPlanId }] },
+    })
+    const planIds = await this.getTestCasePlanIds(testCaseId)
+    if (!planIds) return 'unverified'
+    return planIds.has(testPlanId) ? 'restored' : 'unassigned'
   }
 
   async getTestCaseTestPlans(testCaseId: string): Promise<TestCasePlanLink[] | null> {
@@ -1325,11 +1529,7 @@ export class TpClient {
     result.canUnlink = true
     if (dryRun) return result
 
-    const unassigned = await this.del<unknown>({
-      pathParam: ['testPlans', testPlanId, 'testCases'],
-      // This is the exact endpoint documented by Targetprocess.
-      param: { childrenIds: requestedTestCaseIds.join(',') },
-    })
+    const unassigned = await this.removeTestCaseLinksFromPlan(testPlanId, requestedTestCaseIds)
     if (!unassigned.ok) {
       result.httpStatus = unassigned.status
       result.responseBody = unassigned.body
@@ -1353,6 +1553,14 @@ export class TpClient {
       result.reason = 'Targetprocess returned success, but not every removed link could be verified.'
     }
     return result
+  }
+
+  private async removeTestCaseLinksFromPlan(testPlanId: string, testCaseIds: string[]): Promise<TpResult<unknown>> {
+    return this.del<unknown>({
+      pathParam: ['testPlans', testPlanId, 'testCases'],
+      // This is the exact endpoint documented by Targetprocess.
+      param: { childrenIds: testCaseIds.join(',') },
+    })
   }
 
   async batchMoveTestCasesToSubPlan({
@@ -1407,7 +1615,10 @@ export class TpClient {
         : batch.movedTestCaseIds.length === batchIds.length
       if (!completed) {
         result.canMove = false
-        result.unprocessedTestCaseIds = requestedTestCaseIds.slice(index + batchIds.length)
+        result.unprocessedTestCaseIds = [
+          ...(batch.canMove ? batch.unprocessedTestCaseIds ?? [] : batchIds),
+          ...requestedTestCaseIds.slice(index + batchIds.length),
+        ]
         result.reason = `Stopped after batch ${result.batches.length}: ${batch.reason || 'the batch did not complete a verified move'}`
         return result
       }
