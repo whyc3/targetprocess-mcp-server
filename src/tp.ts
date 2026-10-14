@@ -13,8 +13,10 @@ import {
   RoleAssignment,
   TestPlan,
   TestCase,
+  TestStep,
 } from "./types.js";
 import { config } from "./config.js";
+import { TpHttp, TpApiError, errorDetails, type Query } from "./http.js";
 import { applyTagMutation, hasTagMutation, type TagMutationParams, type TaggableEntityType } from "./tags.js";
 
 type TestPlanNode = {
@@ -80,165 +82,79 @@ type BulkTagUpdateFailure = {
   reason: string
 }
 
+export type CompatibleCaseMoveResult = TestCaseMoveResult & { parentTestPlanId?: string; alreadyInDestinationTestCaseIds: string[]; unprocessedTestCaseIds: string[] }
+export type ChildPlanUnlinkResult = { dryRun: boolean; parentTestPlanId: string; childTestPlanId: string; canUnlink: boolean; unlinked: boolean; missingDirectTestCaseIdsAfter: string[]; directTestCaseCountBefore?: number; reason?: string; httpStatus?: number; responseBody?: string }
+
 export class TpClient {
 
-  private baseUrl: string = config.tp.url
-  private token: string = config.tp.token
-  private headers: HeadersInit
   private readonly v1 = '/api/v1'
   private readonly v2 = '/api/v2'
+  private readonly http = new TpHttp()
 
-  constructor() {
-    this.headers = {
-      "Content-Type": "application/json",
-      Accept: "application/json",
-    }
+  async api<T>(method: 'GET' | 'POST' | 'DELETE', path: string[], data?: unknown, query: Query = {}): Promise<T> {
+    return this.http.request<T>(method, this.v1 + '/' + path.map(encodeURIComponent).join('/'), { format: 'json', ...query }, data)
   }
 
-  private params(params: TpClientParameters): string {
-    let _url = this.baseUrl + (params.apiVersion || this.v1)
-    for (const segment of params.pathParam) {
-      _url += `/${segment}`
+  async apiAll<T>(path: string[], query: Query = {}): Promise<T[]> {
+    const items: T[] = []
+    for (let skip = 0; skip < 1000000; skip += 100) {
+      const page = await this.api<TpResponse<T>>('GET', path, undefined, { ...query, take: 100, skip })
+      if (!page || !Array.isArray(page.Items)) throw new Error('Invalid collection response for ' + path.join('/'))
+      items.push(...page.Items)
+      if (!page.Next) return items
+      if (!page.Items.length) throw new Error('Pagination returned an empty page with a next page')
     }
-
-    let _urlParams = []
-    for (const [key, value] of Object.entries(params.param)) {
-      _urlParams.push(`${key}=${encodeURIComponent(value)}`)
-    }
-    return _url + "/?" + _urlParams.join("&")
+    throw new Error('Pagination limit reached; narrow the query')
   }
 
-  // Strips the access_token value out of a URL before it's logged, so the
-  // live TP credential never ends up in stderr/log files.
-  private redact(url: string): string {
-    return url
-      .replace(this.token, "***")
-      .replace(encodeURIComponent(this.token), "***")
+  private async processId(): Promise<string> {
+    if (config.tp.processId) return config.tp.processId
+    if (config.tp.projectId) {
+      const project = await this.api<{ Process?: { Id: number } }>('GET', ['Projects', config.tp.projectId])
+      if (project?.Process?.Id) return String(project.Process.Id)
+    }
+    throw new Error('Set TP_PROJECT_ID or TP_PROCESS_ID to resolve the project workflow')
   }
 
-  // @ts-ignore
+  // @ts-ignore -- retained for existing consumers
   private async getAll<T>(params: TpClientParameters): Promise<T[]> {
     return (await this.getAllOrNull<T>(params)) || []
   }
 
   private async getAllOrNull<T>(params: TpClientParameters): Promise<T[] | null> {
-    const allItems: T[] = []
-    let skip = 0
-    const take = 100
-
-    while (true) {
-      const page = await this.get<TpResponse<T>>({
-        ...params,
-        param: {
-          ...params.param,
-          take,
-          skip,
-        },
-      })
+    const items: T[] = []
+    for (let skip = 0; skip < 1000000; skip += 100) {
+      const page = await this.get<TpResponse<T>>({ ...params, param: { ...params.param, take: 100, skip } })
       if (!page) return null
-      if (!page?.Items?.length) break
-      allItems.push(...page.Items)
-      if (!page.Next) break
-      skip += take
+      items.push(...page.Items)
+      if (!page.Next) return items
+      if (!page.Items.length) throw new Error('Invalid pagination response')
     }
-
-    return allItems
+    throw new Error('Pagination limit reached')
   }
 
-  private async get<T>(params: TpClientParameters): Promise<T | null> {
-    params.param["access_token"] = this.token
-    let _url = this.params(params)
-    console.error(JSON.stringify({ "TP_GET_URL": this.redact(_url) }))
-    try {
-      const response = await fetch(_url, {
-        method: "GET",
-        headers: this.headers
-      });
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-
-      return (await response.json()) as T
-    } catch (error) {
-      console.error("Error making TP request:", error);
-      console.error("Request URL:", this.redact(_url));
-      return null;
-    }
+  private get<T>(params: TpClientParameters): Promise<T> {
+    return this.http.request<T>('GET', (params.apiVersion || this.v1) + '/' + params.pathParam.map(encodeURIComponent).join('/'), params.param)
   }
 
-  private async post<T, U>(params: TpClientParameters, data: T, options: { throwOnError?: boolean } = {}): Promise<U | null> {
-    params.param["access_token"] = this.token
-    let _url = this.params(params)
-    console.error(JSON.stringify({ "TP_POST_URL": this.redact(_url) }))
-    console.error(JSON.stringify({ "TP_POST_BODY": data }))
-    try {
-      const response = await fetch(_url, {
-        method: "POST",
-        headers: this.headers,
-        body: JSON.stringify(data),
-      });
-      const responseBody = await response.text()
-      if (!response.ok) {
-        const message = `Targetprocess API error (HTTP ${response.status}): ${responseBody || response.statusText}`
-        if (options.throwOnError) throw new Error(message)
-        throw new Error(message)
-      }
-      return (responseBody ? JSON.parse(responseBody) : null) as U
-    } catch (error) {
-      console.error("Error making TP request:", error);
-      if (options.throwOnError) throw error
-      return null;
-    }
+  private post<T, U>(params: TpClientParameters, data: T, _options: { throwOnError?: boolean } = {}): Promise<U> {
+    return this.http.request<U>('POST', (params.apiVersion || this.v1) + '/' + params.pathParam.map(encodeURIComponent).join('/'), params.param, data)
   }
 
-  // Like post(), but on failure returns the HTTP status and raw response body
-  // instead of null, so callers can surface TP's error detail to the user.
+  // Compensation paths retain explicit partial-result reporting.
+  private async tryPost<T, U>(params: TpClientParameters, data: T): Promise<U | null> {
+    try { return await this.post<T, U>(params, data) } catch { return null }
+  }
+
   private async postRaw<T, U>(params: TpClientParameters, data: T): Promise<TpResult<U>> {
-    params.param["access_token"] = this.token
-    let _url = this.params(params)
-    console.error(JSON.stringify({ "TP_POST_URL": this.redact(_url) }))
-    console.error(JSON.stringify({ "TP_POST_BODY": data }))
-    try {
-      const response = await fetch(_url, {
-        method: "POST",
-        headers: this.headers,
-        body: JSON.stringify(data),
-      });
-      const text = await response.text()
-      if (!response.ok) {
-        console.error(JSON.stringify({ "TP_POST_ERROR_STATUS": response.status, "TP_POST_ERROR_BODY": text }))
-        return { ok: false, status: response.status, body: text }
-      }
-      return { ok: true, data: (text ? JSON.parse(text) : null) as U }
-    } catch (error) {
-      console.error("Error making TP request:", error);
-      return { ok: false, status: 0, body: String(error) }
-    }
+    try { return { ok: true, data: await this.post<T, U>(params, data) } }
+    catch (error) { return { ok: false, status: error instanceof TpApiError ? error.status : 0, body: error instanceof TpApiError ? error.body : JSON.stringify(errorDetails(error)) } }
   }
 
-  // DELETE request that, like postRaw(), surfaces the HTTP status and raw
-  // response body on failure so callers can report TP's error detail.
   private async del<U>(params: TpClientParameters): Promise<TpResult<U>> {
-    params.param["access_token"] = this.token
-    let _url = this.params(params)
-    console.error(JSON.stringify({ "TP_DELETE_URL": this.redact(_url) }))
-    try {
-      const response = await fetch(_url, {
-        method: "DELETE",
-        headers: this.headers,
-      });
-      const text = await response.text()
-      if (!response.ok) {
-        console.error(JSON.stringify({ "TP_DELETE_ERROR_STATUS": response.status, "TP_DELETE_ERROR_BODY": text }))
-        return { ok: false, status: response.status, body: text }
-      }
-      return { ok: true, data: (text ? JSON.parse(text) : null) as U }
-    } catch (error) {
-      console.error("Error making TP request:", error);
-      return { ok: false, status: 0, body: String(error) }
-    }
+    try { return { ok: true, data: await this.http.request<U>('DELETE', (params.apiVersion || this.v1) + '/' + params.pathParam.map(encodeURIComponent).join('/'), params.param) } }
+    catch (error) { return { ok: false, status: error instanceof TpApiError ? error.status : 0, body: error instanceof TpApiError ? error.body : JSON.stringify(errorDetails(error)) } }
   }
-
   private escapeWhereValue(value: string): string {
     return value.replace(/\\/g, "\\\\").replace(/'/g, "\\'")
   }
@@ -738,22 +654,19 @@ export class TpClient {
     }, bug) as T
   }
 
-  async createTestCase<T>(name: string, description: string, testPlanId: string): Promise<T> {
-    const testCase = {
-      "Name": name,
-      "Project": { "Id": config.tp.projectId },
-      "Description": description,
-      "TestPlans": [{
-        "Id": testPlanId
-      }],
-    }
-
-    return this.post<any, T>({
-      pathParam: ["testCases"],
-      param: { "format": "json" },
-    }, testCase) as T
+  async createTestCase<T>(name: string, description: string, testPlanId?: string, options: { projectId?: string; tags?: string } = {}): Promise<T> {
+    const plan = testPlanId ? await this.getTestPlan<TestPlan>(testPlanId) : undefined
+    if (testPlanId && !plan?.Project?.Id) throw new Error('Cannot resolve the destination test plan project')
+    const planProjectId = plan?.Project?.Id === undefined ? undefined : String(plan.Project.Id)
+    if (planProjectId && options.projectId && planProjectId !== options.projectId) throw new Error('The requested project differs from the destination test plan project')
+    const projectId = planProjectId || options.projectId || config.tp.projectId
+    if (!projectId) throw new Error('A projectId is required for a standalone test case')
+    return this.post<unknown, T>({ pathParam: ['testCases'], param: { format: 'json' } }, {
+      Name: name, Description: description, Project: { Id: projectId },
+      ...(testPlanId ? { TestPlans: { Items: [{ Id: testPlanId }] } } : {}),
+      ...(options.tags === undefined ? {} : { Tags: options.tags }),
+    })
   }
-
   async deleteTestCase<T>(testCaseId: string): Promise<TpResult<T>> {
     return this.del<T>({
       pathParam: ["testCases", testCaseId],
@@ -761,11 +674,19 @@ export class TpClient {
     })
   }
 
-  async createTestPlan<T>(title: string, resourceId: string, resourceType: 'UserStory' | 'Bug' | 'Feature' = 'UserStory', options?: { description?: string; startDate?: string; endDate?: string; parentTestPlanId?: string }): Promise<T> {
+  async createTestPlan<T>(title: string, resourceId: string, resourceType: 'UserStory' | 'Bug' | 'Feature' = 'UserStory', options?: { description?: string; startDate?: string; endDate?: string; parentTestPlanId?: string; projectId?: string }): Promise<T> {
+    const source = await this.api<{ Project?: { Id: number } }>('GET', ['Generals', resourceId])
+    const projectId = source?.Project?.Id ? String(source.Project.Id) : options?.projectId || config.tp.projectId
+    if (!projectId) throw new Error('Cannot resolve the linked card project')
+    if (options?.projectId && options.projectId !== projectId) throw new Error('Project differs from the linked card project')
+    if (options?.parentTestPlanId) {
+      const parent = await this.getTestPlan<TestPlan>(options.parentTestPlanId)
+      if (String(parent.Project?.Id) !== projectId) throw new Error('Parent test plan belongs to another project')
+    }
     const testPlan: Record<string, any> = {
       "Name": `Test Plan: ${title}`,
       "Project": {
-        "Id": config.tp.projectId
+        "Id": projectId
       },
       "LinkedGeneral": {
         "ResourceType": "General",
@@ -866,11 +787,12 @@ export class TpClient {
     }, commentData) as T
   }
 
-  async addTestStep<T>(testCaseId: string, testStep: { description: string, result: string }): Promise<T> {
+  async addTestStep<T>(testCaseId: string, testStep: { description: string, result: string, runOrder?: number }): Promise<T> {
     const testStepData = {
       "Description": testStep.description,
       "Result": testStep.result,
       "TestCase": { "Id": testCaseId },
+      ...(testStep.runOrder === undefined ? {} : { RunOrder: testStep.runOrder }),
     }
 
     return this.post<any, T>({
@@ -1230,7 +1152,7 @@ export class TpClient {
     }
 
     for (const testCaseId of requestedTestCaseIds) {
-      const assigned = await this.post<any, unknown>({
+      const assigned = await this.tryPost<any, unknown>({
         pathParam: ["testCases", testCaseId],
         param: { "format": "json" },
       }, {
@@ -1239,7 +1161,7 @@ export class TpClient {
 
       if (!assigned) {
         result.failedToAssign.push({ id: testCaseId, reason: `Could not assign to test plan ${destinationTestPlanId}.` })
-        const restored = await this.post<any, unknown>({
+        const restored = await this.tryPost<any, unknown>({
           pathParam: ["testCases", testCaseId],
           param: { "format": "json" },
         }, {
@@ -1494,10 +1416,7 @@ export class TpClient {
   }
 
   async getTestCaseSteps<T>(testCaseId: string): Promise<T> {
-    return this.get<T>({
-      pathParam: ["testCases", testCaseId, "teststeps"],
-      param: { "format": "json" },
-    }) as T
+    return { Next: '', Items: await this.apiAll<TestStep>(['testCases', testCaseId, 'teststeps'], { orderby: 'RunOrder' }) } as T
   }
 
   async updateTestCase<T>({ id, name, description, tags, addTags, removeTags }: { id: string, name?: string, description?: string, tags?: string, addTags?: string, removeTags?: string }): Promise<T> {
@@ -1612,7 +1531,7 @@ export class TpClient {
       param: {
         "format": "json",
         "select": `{Id,Name,Process,EntityType,EntityStates.Select({Id,Name}) as EntityStates}`,
-        "where": `(process.id=${config.tp.processId} and entityType.name="userStory" and parentWorkflow=null)`,
+        "where": `(process.id=${await this.processId()} and entityType.name="userStory" and parentWorkflow=null)`,
         "take": "1",
       },
       apiVersion: this.v2
@@ -1625,7 +1544,7 @@ export class TpClient {
       param: {
         "format": "json",
         "select": `{id,name,isInitial,isFinal,isDefaultFinal,isPlanned,workflow:{workflow.id,process:{workflow.process.id}},entityType:{entityType.name},subEntityStates:subEntityStates.Select({id,name,entityType:{entityType.name},isInitial,isFinal,isDefaultFinal,isPlanned})}`,
-        "where": `(parentEntityState==null and workflow.process.id in [${config.tp.processId}])`,
+        "where": `(parentEntityState==null and workflow.process.id in [${await this.processId()}])`,
         "take": "1000",
       },
       apiVersion: this.v2
@@ -1638,7 +1557,7 @@ export class TpClient {
       param: {
         "format": "json",
         "select": `{Id,Name,Process,EntityType,EntityStates.Select({Id,Name}) as EntityStates}`,
-        "where": `(process.id=${config.tp.processId} and entityType.name="bug" and parentWorkflow=null)`,
+        "where": `(process.id=${await this.processId()} and entityType.name="bug" and parentWorkflow=null)`,
         "take": "1",
       },
       apiVersion: this.v2
@@ -1909,37 +1828,285 @@ export class TpClient {
   }
 
 
-  async addAttachedFile(generalId: string, source: { filePath: string } | { fileContent: string; fileName: string }): Promise<string | null> {
-    let blob: Blob
-    let fileName: string
+  // Compatibility with the connected upstream 2.6.10 server; preserve these tools when upgrading the older checkout.
 
-    if ("filePath" in source) {
-      blob = new Blob([readFileSync(source.filePath)])
-      fileName = basename(source.filePath)
-    } else {
-      blob = new Blob([Buffer.from(source.fileContent, "base64")])
-      fileName = source.fileName
+  async moveTestCasesBetweenSiblingPlans({ parentTestPlanId, sourceTestPlanId, destinationTestPlanId, testCaseIds, dryRun = true }: { parentTestPlanId: string; sourceTestPlanId: string; destinationTestPlanId: string; testCaseIds: string[]; dryRun?: boolean }): Promise<CompatibleCaseMoveResult> {
+
+    return this.moveCompatibleTestCases({ sourceTestPlanId, destinationTestPlanId, testCaseIds, dryRun }, { kind: 'sibling', parentTestPlanId })
+
+  }
+
+
+
+  private async readCasePlanIdsSafely(id: string): Promise<Set<string> | null> {
+
+    try { return await this.getTestCasePlanIds(id) } catch { return null }
+
+  }
+
+
+
+  private async moveCompatibleTestCases({ sourceTestPlanId, destinationTestPlanId, testCaseIds, dryRun }: { sourceTestPlanId: string; destinationTestPlanId: string; testCaseIds: string[]; dryRun: boolean }, relation: { kind: 'sibling'; parentTestPlanId: string } | { kind: 'descendant' }): Promise<CompatibleCaseMoveResult> {
+        const requestedTestCaseIds = [...new Set(testCaseIds.map(String))];
+        const result: CompatibleCaseMoveResult = {
+            dryRun,
+            sourceTestPlanId,
+            destinationTestPlanId,
+            ...(relation.kind === 'sibling' ? { parentTestPlanId: relation.parentTestPlanId } : {}),
+            requestedTestCaseIds,
+            eligibleTestCaseIds: [],
+            missingFromSourceTestCaseIds: [],
+            alreadyInDestinationTestCaseIds: [],
+            canMove: false,
+            movedTestCaseIds: [],
+            unprocessedTestCaseIds: [],
+            failedToAssign: [],
+            retainedInSourceTestCaseIds: [],
+            restoredToSourceTestCaseIds: [],
+            unassignedWithoutDestinationTestCaseIds: [],
+            unverifiedMoveTestCaseIds: [],
+        };
+        if (sourceTestPlanId === destinationTestPlanId) {
+            result.reason = 'Source and destination test plans must be different.';
+            return result;
+        }
+        if (requestedTestCaseIds.length !== testCaseIds.length) {
+            result.reason = 'Provide each test case ID only once.';
+            return result;
+        }
+        if (requestedTestCaseIds.length === 0) {
+            result.reason = 'Provide at least one test case ID.';
+            return result;
+        }
+        const sourceTestCases = await this.getAllOrNull<TestCase>({
+            pathParam: ["testPlans", sourceTestPlanId, "testcases"],
+            param: { "format": "json" },
+        });
+        if (!sourceTestCases) {
+            result.reason = `Unable to read direct test cases in source test plan ${sourceTestPlanId}.`;
+            return result;
+        }
+        const sourceTestCaseIds = new Set(sourceTestCases.map((testCase) => String(testCase.Id)));
+        result.eligibleTestCaseIds = requestedTestCaseIds.filter((id) => sourceTestCaseIds.has(id));
+        result.missingFromSourceTestCaseIds = requestedTestCaseIds.filter((id) => !sourceTestCaseIds.has(id));
+        if (result.missingFromSourceTestCaseIds.length > 0) {
+            result.reason = 'Every requested test case must be directly assigned to the source test plan.';
+            return result;
+        }
+        if (relation.kind === 'sibling') {
+            const { parentTestPlanId } = relation;
+            if (!/^\d+$/.test(parentTestPlanId) || parentTestPlanId === sourceTestPlanId || parentTestPlanId === destinationTestPlanId) {
+                result.reason = 'Provide a different numeric shared parent test plan ID.';
+                return result;
+            }
+            const parent = await this.getTestPlan<TestPlan>(parentTestPlanId);
+            const children = parent ? await this.getChildTestPlanNodes(parentTestPlanId) : null;
+            if (!parent || String(parent.Id) !== parentTestPlanId || !children) {
+                result.reason = `Unable to verify the direct child plans of ${parentTestPlanId}.`;
+                return result;
+            }
+            if (!children.some((plan) => plan.id === sourceTestPlanId)
+                || !children.some((plan) => plan.id === destinationTestPlanId)) {
+                result.reason = 'Source and destination must both be direct child plans of the specified parent.';
+                return result;
+            }
+            const destinationTestCases = await this.getAllOrNull<TestCase>({
+                pathParam: ['testPlans', destinationTestPlanId, 'testcases'],
+                param: { format: 'json' },
+            });
+            if (!destinationTestCases) {
+                result.reason = `Unable to read direct test cases in destination test plan ${destinationTestPlanId}.`;
+                return result;
+            }
+            const destinationIds = new Set(destinationTestCases.map((testCase) => String(testCase.Id)));
+            result.alreadyInDestinationTestCaseIds = requestedTestCaseIds.filter((id) => destinationIds.has(id));
+            if (result.alreadyInDestinationTestCaseIds.length > 0) {
+                result.reason = 'Selected test cases already linked to the destination must be resolved before moving.';
+                return result;
+            }
+        }
+        else {
+            const isDescendant = await this.isTestPlanDescendant(sourceTestPlanId, destinationTestPlanId);
+            if (isDescendant === null) {
+                result.reason = `Unable to verify that test plan ${destinationTestPlanId} is nested below ${sourceTestPlanId}.`;
+                return result;
+            }
+            if (!isDescendant) {
+                result.reason = `Destination test plan ${destinationTestPlanId} is not a sub plan of ${sourceTestPlanId}.`;
+                return result;
+            }
+        }
+        result.canMove = true;
+        if (dryRun)
+            return result;
+        // POST assignments are additive. Move one case at a time, never assigning
+        // a destination until its own source link was removed and verified.
+        for (const [index, testCaseId] of requestedTestCaseIds.entries()) {
+            // Direct membership was checked during preflight; avoid listing every
+            // source case again for each selected case.
+            const unassigned = await this.removeTestCaseLinksFromPlan(sourceTestPlanId, [testCaseId]);
+            if (!unassigned.ok) {
+                result.retainedInSourceTestCaseIds.push(testCaseId);
+                result.unprocessedTestCaseIds = requestedTestCaseIds.slice(index + 1);
+                result.reason = `The source link to ${sourceTestPlanId} could not be removed for case ${testCaseId}; no destination link was added for it. No test cases were deleted or copied.`;
+                return result;
+            }
+            const afterUnlink = await this.readCasePlanIdsSafely(testCaseId);
+            if (!afterUnlink || afterUnlink.has(sourceTestPlanId)) {
+                if (afterUnlink?.has(sourceTestPlanId)) {
+                    result.retainedInSourceTestCaseIds.push(testCaseId);
+                }
+                else {
+                    result.unverifiedMoveTestCaseIds.push(testCaseId);
+                    const restored = await this.restoreTestCaseToPlan(testCaseId, sourceTestPlanId);
+                    if (restored === 'restored')
+                        result.restoredToSourceTestCaseIds.push(testCaseId);
+                    else if (restored === 'unassigned')
+                        result.unassignedWithoutDestinationTestCaseIds.push(testCaseId);
+                }
+                result.unprocessedTestCaseIds = requestedTestCaseIds.slice(index + 1);
+                result.reason = `The source link to ${sourceTestPlanId} could not be verified as removed for case ${testCaseId}; no destination link was added for it. No test cases were deleted or copied.`;
+                return result;
+            }
+            const assigned = await this.tryPost<unknown, unknown>({
+                pathParam: ["testCases", testCaseId],
+                param: { "format": "json" },
+            }, {
+                "TestPlans": { "Items": [{ "Id": destinationTestPlanId }] },
+            });
+            const planIds = await this.readCasePlanIdsSafely(testCaseId);
+            if (planIds?.has(destinationTestPlanId) && !planIds.has(sourceTestPlanId)) {
+                result.movedTestCaseIds.push(testCaseId);
+                continue;
+            }
+            if (!assigned) {
+                result.failedToAssign.push({ id: testCaseId, reason: `Could not assign to test plan ${destinationTestPlanId}.` });
+                const restored = await this.restoreTestCaseToPlan(testCaseId, sourceTestPlanId);
+                if (restored === 'restored')
+                    result.restoredToSourceTestCaseIds.push(testCaseId);
+                else if (restored === 'unassigned')
+                    result.unassignedWithoutDestinationTestCaseIds.push(testCaseId);
+                else
+                    result.unverifiedMoveTestCaseIds.push(testCaseId);
+                result.unprocessedTestCaseIds = requestedTestCaseIds.slice(index + 1);
+                result.reason = 'Destination assignment failed; source-link restoration was attempted and verified where possible.';
+                return result;
+            }
+            result.unverifiedMoveTestCaseIds.push(testCaseId);
+            if (planIds && !planIds.has(destinationTestPlanId) && !planIds.has(sourceTestPlanId)) {
+                const restored = await this.restoreTestCaseToPlan(testCaseId, sourceTestPlanId);
+                if (restored === 'restored')
+                    result.restoredToSourceTestCaseIds.push(testCaseId);
+                else if (restored === 'unassigned')
+                    result.unassignedWithoutDestinationTestCaseIds.push(testCaseId);
+            }
+            result.unprocessedTestCaseIds = requestedTestCaseIds.slice(index + 1);
+            result.reason = 'Destination assignment could not be verified; stopped before moving further cases.';
+            return result;
+        }
+        return result;
     }
 
-    const formData = new FormData()
-    formData.append("generalId", generalId)
-    formData.append("file", blob, fileName)
-
-    const url = `${this.baseUrl}/UploadFile.ashx?access_token=${this.token}`
-    console.error(JSON.stringify({ "UPLOAD_URL": this.redact(url) }, null, 2))
-
-    try {
-      const response = await fetch(url, {
-        method: "POST",
-        body: formData,
-      })
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`)
-      }
-      return await response.text()
-    } catch (error) {
-      console.error("Error uploading file:", error)
-      return null
+  async unlinkChildTestPlanFromParent({ parentTestPlanId, childTestPlanId, dryRun = true }: { parentTestPlanId: string; childTestPlanId: string; dryRun?: boolean }): Promise<ChildPlanUnlinkResult> {
+        const result: ChildPlanUnlinkResult = {
+            dryRun, parentTestPlanId, childTestPlanId, canUnlink: false, unlinked: false,
+            missingDirectTestCaseIdsAfter: [],
+        };
+        if (parentTestPlanId === childTestPlanId || !/^\d+$/.test(parentTestPlanId) || !/^\d+$/.test(childTestPlanId)) {
+            result.reason = 'Provide different numeric parent and child test plan IDs.';
+            return result;
+        }
+        const parent = await this.getTestPlan<TestPlan>(parentTestPlanId);
+        const child = await this.getTestPlan<TestPlan>(childTestPlanId);
+        if (!parent || !child || String(parent.Id) !== parentTestPlanId || String(child.Id) !== childTestPlanId) {
+            result.reason = 'Unable to verify that both test plans exist.';
+            return result;
+        }
+        const children = await this.getChildTestPlanNodes(parentTestPlanId);
+        if (!children) {
+            result.reason = `Unable to read direct child plans of ${parentTestPlanId}.`;
+            return result;
+        }
+        if (!children.some((plan) => plan.id === childTestPlanId)) {
+            result.reason = `Test plan ${childTestPlanId} is not directly linked beneath ${parentTestPlanId}.`;
+            return result;
+        }
+        const before = await this.getAllOrNull<TestCase>({
+            pathParam: ['testPlans', childTestPlanId, 'testcases'],
+            param: { format: 'json' },
+        });
+        if (!before) {
+            result.reason = `Unable to read direct test cases in ${childTestPlanId}.`;
+            return result;
+        }
+        result.directTestCaseCountBefore = before.length;
+        result.canUnlink = true;
+        if (dryRun)
+            return result;
+        // Delete only the association collection entry, never /testPlans/{id}.
+        const unassigned = await this.del<unknown>({
+            pathParam: ['testPlans', parentTestPlanId, 'ChildTestPlans'],
+            param: { childrenIds: childTestPlanId },
+        });
+        if (!unassigned.ok) {
+            result.httpStatus = unassigned.status;
+            result.responseBody = unassigned.body;
+            result.reason = `Targetprocess could not unlink test plan ${childTestPlanId} from ${parentTestPlanId}.`;
+            return result;
+        }
+        const remainingChildren = await this.getChildTestPlanNodes(parentTestPlanId);
+        const remainingParent = await this.getTestPlan<TestPlan>(parentTestPlanId);
+        const remainingChild = await this.getTestPlan<TestPlan>(childTestPlanId);
+        const after = await this.getAllOrNull<TestCase>({
+            pathParam: ['testPlans', childTestPlanId, 'testcases'],
+            param: { format: 'json' },
+        });
+        if (!remainingChildren || !remainingParent || !remainingChild || !after) {
+            result.reason = 'Targetprocess returned success, but plan and case preservation could not be verified.';
+            return result;
+        }
+        const afterIds = new Set(after.map((testCase) => String(testCase.Id)));
+        result.missingDirectTestCaseIdsAfter = before
+            .map((testCase) => String(testCase.Id))
+            .filter((id) => !afterIds.has(id));
+        if (remainingChildren.some((plan) => plan.id === childTestPlanId)
+            || String(remainingParent.Id) !== parentTestPlanId
+            || String(remainingChild.Id) !== childTestPlanId
+            || result.missingDirectTestCaseIdsAfter.length > 0) {
+            result.reason = 'Targetprocess returned success, but the unlink or plan/case preservation could not be verified.';
+            return result;
+        }
+        result.unlinked = true;
+        return result;
     }
+
+  private async removeTestCaseLinksFromPlan(testPlanId: string, testCaseIds: string[]): Promise<TpResult<unknown>> {
+        return this.del<unknown>({
+            pathParam: ['testPlans', testPlanId, 'testCases'],
+            // This is the exact endpoint documented by Targetprocess.
+            param: { childrenIds: testCaseIds.join(',') },
+        });
+    }
+
+  private async restoreTestCaseToPlan(testCaseId: string, testPlanId: string): Promise<'restored' | 'unassigned' | 'unverified'> {
+        await this.tryPost<unknown, unknown>({
+            pathParam: ['testCases', testCaseId],
+            param: { format: 'json' },
+        }, {
+            TestPlans: { Items: [{ Id: testPlanId }] },
+        });
+        const planIds = await this.readCasePlanIdsSafely(testCaseId);
+        if (!planIds)
+            return 'unverified';
+        return planIds.has(testPlanId) ? 'restored' : 'unassigned';
+    }
+
+  async addAttachedFile(generalId: string, source: { filePath: string } | { fileContent: string; fileName: string }): Promise<string> {
+    const fileName = 'filePath' in source ? basename(source.filePath) : source.fileName
+    const blob = new Blob(['filePath' in source ? readFileSync(source.filePath) : Buffer.from(source.fileContent, 'base64')])
+    const form = new FormData()
+    form.append('generalId', generalId)
+    form.append('file', blob, fileName)
+    return this.http.request<string>('POST', '/UploadFile.ashx', {}, form, true)
   }
 }

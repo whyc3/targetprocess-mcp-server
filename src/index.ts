@@ -1,6 +1,11 @@
 #!/usr/bin/env node
 
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { ReliableMcpServer } from "./reliable_server.js";
+import { validateConfiguration } from "./config.js";
+import { registerTestManagementTools } from "./test_management_tools.js";
+import { handleAddTestCases } from "./handlers/add_test_cases_to_test_plan.js";
+import { fileURLToPath } from "node:url";
+import { resolve } from "node:path";
 import { z } from "zod";
 import { JSDOM } from "jsdom";
 import { createRequire } from "module";
@@ -79,10 +84,13 @@ import { handleGetRelationTypes } from "./handlers/get_relation_types.js";
 import { handleGetVersion } from "./handlers/get_version.js";
 import { handleUpdateCardTags } from "./handlers/update_card_tags.js";
 
-const server = new McpServer(
+const require = createRequire(import.meta.url);
+const { version } = require("../package.json");
+
+export const server = new ReliableMcpServer(
   {
     name: "tp",
-    version: "1.0.0"
+    version
   },
   {
     capabilities: {
@@ -1964,7 +1972,7 @@ server.registerTool(
             - name: concise action-oriented title
             - description: HTML <div> with Preconditions and Test Type sections only (no steps here)
             - steps: ordered array of { description: "<step action>", result: "<expected result>" }
-        4) Call "create_test_plan" tool passing: resourceId (the card id), resourceType, testPlanTitle (use the card name/title), NOTE: IF test plan already exists - skip this step and proceed to step 5.
+        4) Call "create_test_plan" tool passing: resourceId (the card id), resourceType, title (use the card name/title), NOTE: IF test plan already exists - skip this step and proceed to step 5.
         5) Call "add_test_cases_to_test_plan" tool passing: testPlanId (the test plan id), and the testCases array with name, description, and steps`,
     inputSchema: {
       resourceId: z.string()
@@ -2031,7 +2039,7 @@ server.registerTool(
         .max(9)
         .describe('Test plan ID to add test cases to (e.g. 145789)'),
       testCases: z.array(z.object({
-        name: z.string()
+        name: z.string().trim().min(1)
           .describe('Test case title (concise, action-oriented)'),
         description: z.string()
           .describe('Test case context formatted as HTML — include Preconditions and Test Type sections, but NOT test steps (those go in the steps field)'),
@@ -2044,42 +2052,11 @@ server.registerTool(
           .min(1)
           .describe('Ordered list of test steps with their expected results'),
       }))
-        .min(1)
+        .min(1).max(100)
         .describe('Array of test cases to create in the test plan'),
     },
   },
-  async ({ testPlanId, testCases }) => {
-    const created: { id: number; name: string; stepsAdded: number; stepsFailed: number }[] = []
-    const failed: string[] = []
-
-    for (const tc of testCases) {
-      const testCase = await tp.createTestCase<TP.TestCase>(tc.name, tc.description, String(testPlanId))
-      if (!testCase) {
-        failed.push(tc.name)
-        continue
-      }
-
-      let stepsAdded = 0
-      let stepsFailed = 0
-      for (const step of tc.steps) {
-        const stepResult = await tp.addTestStep<TP.TestStep>(String(testCase.Id), step)
-        if (stepResult) {
-          stepsAdded++
-        } else {
-          stepsFailed++
-        }
-      }
-
-      created.push({ id: testCase.Id, name: testCase.Name, stepsAdded, stepsFailed })
-    }
-
-    return {
-      content: [{
-        type: 'text',
-        text: JSON.stringify({ created, failed })
-      }]
-    }
-  }
+  async ({ testPlanId, testCases }) => handleAddTestCases(tp, testPlanId, testCases)
 )
 
 server.registerTool(
@@ -2397,9 +2374,6 @@ server.registerTool(
   async ({ take }) => handleGetMyTimeLogs(tp, take)
 )
 
-const require = createRequire(import.meta.url);
-const { version } = require("../package.json");
-
 server.registerTool(
   'get_version',
   {
@@ -2410,13 +2384,16 @@ server.registerTool(
   async () => handleGetVersion(version)
 )
 
+registerTestManagementTools(server, tp);
+
 async function main() {
+  validateConfiguration();
   const transport = new StdioServerTransport();
   await server.connect(transport);
   console.error("Targetprocess MCP Server running on stdio");
 }
 
-main().catch((error) => {
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) main().catch((error) => {
   console.error("Fatal error in main():", error);
   process.exit(1);
 });

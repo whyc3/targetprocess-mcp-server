@@ -33,6 +33,12 @@ It acts as a **bridge between LLM agents and the Targetprocess API**, providing:
 - "remove manual tag from TP test cases 145789 and 145790"
 
 ---
+## Test management extension (2.7.0)
+
+Case/run creation, execution results, screenshots, defect links, lifecycle controls,
+reporting, case reuse, and ordering are described in [Test management](doc/TEST_MANAGEMENT.md).
+Build this checkout and reconnect your MCP client to enable the new tools.
+
 ## Available tools:
 Releases
 - `get_current_releases` — List all current releases (no params needed)
@@ -113,7 +119,7 @@ Cards — Write
 - `update_feature` — Update a feature card with data provided from user input; pass only the fields to change (id, optional title, optional description, optional epicId, optional releaseId, optional projectId, optional teamId, optional entityStateId, optional tags, optional teamIterationId)  
 - `create_test_plan` — Create a test plan linked to a UserStory, Bug, or Feature (title, resourceId, optional resourceType, optional description/startDate/endDate)
 > [!NOTE]
-> requires `TP_PROJECT_ID`,
+> derives the project from the linked card,
 - `create_nested_test_plan` — Create a suite/module sub plan below an existing test plan (title, parentTestPlanId, optional description)
 - `move_test_cases_to_sub_plan` — Safely move selected direct test cases from a parent plan to one of its sub plans (sourceTestPlanId, destinationTestPlanId, testCaseIds, optional dryRun; defaults to `true`)
   > The tool validates the hierarchy and membership before any change. When executed, it adds the destination link first, then removes only the source-plan link—test cases are never deleted.

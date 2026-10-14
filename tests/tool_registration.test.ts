@@ -7,12 +7,12 @@ const testsDir = path.dirname(fileURLToPath(import.meta.url))
 const indexPath = path.resolve(testsDir, '../src/index.ts')
 
 function getRegisteredToolNames(source: string): string[] {
-  return [...source.matchAll(/server\.registerTool\(\s*['"]([^'"]+)['"]/g)].map(([, name]) => name)
+  return [...source.matchAll(/(?:server\.registerTool|register)\(\s*['"]([^'"]+)['"]/g)].map(([, name]) => name)
 }
 
 describe('MCP tool registration', () => {
   it('registers each tool name only once', () => {
-    const source = fs.readFileSync(indexPath, 'utf8')
+    const source = fs.readFileSync(indexPath, 'utf8') + '\n' + fs.readFileSync(path.resolve(testsDir, '../src/test_management_tools.ts'), 'utf8')
     const toolNames = getRegisteredToolNames(source)
     const counts = new Map<string, number>()
 

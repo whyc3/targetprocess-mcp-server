@@ -8,7 +8,8 @@
     "postbuild": "node chmod.js",
     "prepack": "npm run build",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit"
   },
   "files": [
     "build"
@@ -28,7 +29,7 @@
   "engines": {
     "node": ">=20.x"
   },
-  "version": "2.6.9",
+  "version": "2.7.0",
   "description": "MCP server for Tartget Process",
   "main": "build/index.js",
   "keywords": [
