@@ -12,7 +12,7 @@ function getRegisteredToolNames(source: string): string[] {
 
 describe('MCP tool registration', () => {
   it('registers each tool name only once', () => {
-    const source = fs.readFileSync(indexPath, 'utf8') + '\n' + fs.readFileSync(path.resolve(testsDir, '../src/test_management_tools.ts'), 'utf8')
+    const source = fs.readFileSync(indexPath, 'utf8') + '\n' + fs.readFileSync(path.resolve(testsDir, '../src/test_management_tools.ts'), 'utf8') + '\n' + fs.readFileSync(path.resolve(testsDir, '../src/extended_tools.ts'), 'utf8')
     const toolNames = getRegisteredToolNames(source)
     const counts = new Map<string, number>()
 

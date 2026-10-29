@@ -15,6 +15,11 @@ type SearchAccumulator = {
 }
 
 type SearchParams = {
+  teamId?: string
+  iterationId?: string
+  teamIterationId?: string
+  testerId?: string
+  roleId?: string
   keyword: string
   entityType: TP.SearchEntityType
   searchInName?: boolean
@@ -99,6 +104,7 @@ function compareRankedItems(left: SearchAccumulator, right: SearchAccumulator): 
 
 function definedFilters(params: SearchParams): TP.SearchFilters {
   return {
+    teamId: params.teamId, iterationId: params.iterationId, teamIterationId: params.teamIterationId, testerId: params.testerId, roleId: params.roleId,
     entityStateName: params.state,
     projectId: params.projectId,
     ownerId: params.ownerId,
@@ -163,6 +169,10 @@ export async function handleSearchTpCards(tp: TpClient, params: SearchParams) {
 
     const field = fields[index]
     for (const item of response.Items) {
+      if (params.testerId && params.roleId) {
+        const assignments = Array.isArray(item.Assignments) ? item.Assignments : item.Assignments?.Items
+        if (!assignments?.some((a: { GeneralUser?: { Id: number }; Role?: { Id: number } }) => String(a.GeneralUser?.Id) === params.testerId && String(a.Role?.Id) === params.roleId)) continue
+      }
       const key = buildItemKey(item)
       const existing = resultMap.get(key)
       const nextScore = scoreFieldMatch(item, keyword, field)
@@ -205,6 +215,7 @@ export async function handleSearchTpCards(tp: TpClient, params: SearchParams) {
     projectName: item.Project?.Name,
     entityStateName: item.EntityState?.Name,
     ownerName: item.Owner?.FullName,
+    assignments: item.Assignments, roleEfforts: item.RoleEfforts, assignedTeams: item.AssignedTeams, iteration: item.Iteration, teamIteration: item.TeamIteration,
     tags: parseTags(item.Tags),
     createDate: item.CreateDate,
     modifyDate: item.ModifyDate,

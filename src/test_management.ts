@@ -1,5 +1,7 @@
+import { equivalentMarkup } from './capability_helpers.js'
 import { basename, isAbsolute } from 'node:path'
 import { statSync } from 'node:fs'
+import { JSDOM } from 'jsdom'
 import type { TpClient } from './tp.js'
 import type { TestCase, TestStep, TpResponse } from './types.js'
 import type { Attachment, CaseRun, ExecutionInput, PlanRun, Ref, State, StepRun } from './test_management_types.js'
@@ -30,6 +32,78 @@ function metadataField(value: unknown, name: string): Record<string, unknown> | 
     if (found) return found
   }
   return undefined
+}
+
+function isScreenshot(file: Attachment) {
+  return /^image\/(png|jpeg|gif|webp)$/i.test(file.MimeType || '') || /\.(png|jpe?g|gif|webp)$/i.test(file.Name || '')
+}
+
+export function referencedEvidence(comment: string): Set<string> {
+  const ids = new Set<string>()
+  const dom = new JSDOM(comment)
+  try {
+    for (const element of dom.window.document.querySelectorAll('[href], [src]')) {
+      const value = element.getAttribute('href') || element.getAttribute('src') || ''
+      try {
+        const url = new URL(value, 'https://targetprocess.invalid')
+        if (!/\/Attachment\.aspx$/i.test(url.pathname)) continue
+        for (const [key, id] of url.searchParams) {
+          if (key.toLowerCase() === 'attachmentid' && /^[1-9]\d*$/.test(id)) ids.add(id)
+        }
+      } catch { /* Ignore unrelated or malformed links. */ }
+    }
+    // Preserve references written by MCP 2.7.0 before inline evidence was supported.
+    for (const match of comment.matchAll(/(?:Evidence attachment IDs:|Evidence for TestCaseRun \d+: attachment IDs)\s*([\d, ]+)/gi)) {
+      for (const id of match[1].split(',').map(value => value.trim())) if (/^[1-9]\d*$/.test(id)) ids.add(id)
+    }
+    return ids
+  } finally { dom.window.close() }
+}
+
+export function evidenceComment(comment: string, testCaseRunId: string, files: Attachment[]) {
+  const dom = new JSDOM(comment)
+  try {
+    const document = dom.window.document
+    const body = document.body
+    // A plain-text observation should retain its line breaks in the rich-text field.
+    if (!body.children.length && comment) {
+      body.replaceChildren()
+      const paragraph = document.createElement('p')
+      comment.split(/\r?\n/).forEach((line, index) => {
+        if (index) paragraph.appendChild(document.createElement('br'))
+        paragraph.appendChild(document.createTextNode(line))
+      })
+      body.appendChild(paragraph)
+    }
+    for (const existing of body.querySelectorAll('[data-tp-case-run-evidence]')) {
+      if (existing.getAttribute('data-tp-case-run-evidence') === testCaseRunId) existing.remove()
+    }
+    const section = document.createElement('div')
+    section.setAttribute('data-tp-case-run-evidence', testCaseRunId)
+    const heading = document.createElement('p')
+    heading.textContent = 'Evidence for TestCaseRun ' + testCaseRunId
+    section.appendChild(heading)
+    const list = document.createElement('ul')
+    for (const file of files) {
+      const item = document.createElement('li')
+      const link = document.createElement('a')
+      link.setAttribute('href', '/Attachment.aspx?AttachmentID=' + assertId(String(file.Id)))
+      link.textContent = (file.Name || 'Evidence') + ' (attachment ' + file.Id + ')'
+      item.appendChild(link)
+      if (isScreenshot(file)) {
+        item.appendChild(document.createElement('br'))
+        const image = document.createElement('img')
+        image.setAttribute('src', link.getAttribute('href')!)
+        image.setAttribute('alt', file.Name || 'Execution screenshot')
+        image.setAttribute('style', 'max-width:100%;height:auto;')
+        item.appendChild(image)
+      }
+      list.appendChild(item)
+    }
+    section.appendChild(list)
+    body.appendChild(section)
+    return body.innerHTML
+  } finally { dom.window.close() }
 }
 
 const terminal = (status: string | null | undefined) => ['passed', 'failed'].includes((status || '').toLowerCase())
@@ -208,12 +282,12 @@ export class TestManagement {
     catch (error) { return { id: run.Id, verified: false, verificationError: errorDetails(error) } }
   }
 
-  listRuns(options: { testPlanId?: string; projectId?: string; take?: number; skip?: number; latestOnly?: boolean }) {
+  listRuns(options: { testPlanId?: string; projectId?: string; take?: number; skip?: number; latestOnly?: boolean; orderBy?: 'CreateDate' | 'Id' | 'StartDate'; orderDirection?: 'asc' | 'desc' }) {
     const where = []
     if (options.testPlanId) where.push('TestPlan.Id eq ' + assertId(options.testPlanId))
     if (options.projectId) where.push('Project.Id eq ' + assertId(options.projectId))
     if (options.latestOnly) where.push("IsLastStarted eq 'True'")
-    return this.tp.api('GET', ['TestPlanRuns'], undefined, { take: options.take ?? 50, skip: options.skip ?? 0, orderby: 'CreateDate desc', ...(where.length ? { where: where.join(' and ') } : {}) })
+    return this.tp.api('GET', ['TestPlanRuns'], undefined, { take: options.take ?? 50, skip: options.skip ?? 0, [options.orderDirection === 'asc' ? 'orderBy' : 'orderByDesc']: options.orderBy ?? 'CreateDate', ...(where.length ? { where: where.join(' and ') } : {}) })
   }
 
   async getCaseRun(id: string) {
@@ -258,7 +332,7 @@ export class TestManagement {
     })
   }
 
-  private async editable(id: string, visited = new Set<string>()): Promise<PlanRun> {
+  async editable(id: string, visited = new Set<string>()): Promise<PlanRun> {
     if (visited.has(id)) throw new Error('Cycle in parent test plan runs')
     visited.add(id)
     const run = await this.tp.api<PlanRun>('GET', ['TestPlanRuns', assertId(id)])
@@ -290,12 +364,17 @@ export class TestManagement {
       ...(changes.stateId ? { EntityState: { Id: changes.stateId } } : {}),
     }
     if (!Object.keys(body).length) throw new Error('Provide fields to update')
-    await this.tp.api('POST', ['TestPlanRuns', id], body)
-    const after = await this.tp.api<PlanRun>('GET', ['TestPlanRuns', id])
-    if (changes.stateId && String(after.EntityState?.Id) !== changes.stateId) throw new Error('Run state could not be verified')
-    if (changes.name !== undefined && after.Name !== changes.name) throw new Error('Run name could not be verified')
-    if (changes.description !== undefined && after.Description !== changes.description) throw new Error('Run description could not be verified')
-    return after
+    let writeError: unknown
+    try { await this.tp.api('POST', ['TestPlanRuns', id], body) } catch (error) { writeError = error }
+    try {
+      const after = await this.tp.api<PlanRun>('GET', ['TestPlanRuns', id])
+      if (changes.stateId && String(after.EntityState?.Id) !== changes.stateId) throw new Error('Run state could not be verified')
+      if (changes.name !== undefined && after.Name !== changes.name) throw new Error('Run name could not be verified')
+      if (changes.description !== undefined && !equivalentMarkup(after.Description, changes.description)) throw new Error('Run description could not be verified')
+      return { ...after, verified: true, writeStatus: 'verified' }
+    } catch (error) {
+      return { Id: Number(id), id, status: 'partial', verified: false, writeStatus: writeError ? 'unknown' : 'acknowledged', verificationError: errorDetails(error), ...(writeError ? { writeError: errorDetails(writeError) } : {}), recovery: 'Read this run ID before retrying; no replacement run is needed.' }
+    }
   }
 
   async completeRun(id: string, stateId: string, allowIncomplete = false, reason?: string) {
@@ -337,7 +416,7 @@ export class TestManagement {
     if (!evidenceIds.length) throw new Error('At least one screenshot attachment ID is required')
     const attached = await this.attachments(runId)
     const selected = evidenceIds.map(id => attached.find(file => String(file.Id) === assertId(id)))
-    if (selected.some(file => !file || !(/^image\/(png|jpeg|gif|webp)$/i.test(file.MimeType || '') || /\.(png|jpe?g|gif|webp)$/i.test(file.Name || '')))) {
+    if (selected.some(file => !file || !isScreenshot(file))) {
       throw new Error('Evidence must be a screenshot attached to this exact Test Plan Run')
     }
     return selected as Attachment[]
@@ -370,10 +449,13 @@ export class TestManagement {
     if (!input.comment.trim()) throw new Error('Provide actual results or the reason for this status')
     const evidence = await this.verifyEvidence(String(run.TestPlanRun.Id), input.evidenceAttachmentIds || [])
     await this.validateStatus('TestCaseRuns', input.status)
-    const note = input.comment + '\nEvidence attachment IDs: ' + evidence.map(file => file.Id).join(', ')
+    const referenced = referencedEvidence((run.Comment || '') + '\n' + input.comment)
+    const previous = (await this.attachments(String(run.TestPlanRun.Id))).filter(file => referenced.has(String(file.Id)))
+    const allEvidence = [...new Map([...previous, ...evidence].map(file => [file.Id, file])).values()]
+    const note = evidenceComment(input.comment, input.id, allEvidence)
     await this.tp.api('POST', ['TestCaseRuns', input.id], { Status: input.status, Comment: note })
     const after = await this.tp.api<CaseRun>('GET', ['TestCaseRuns', input.id])
-    if (after.Status !== input.status || after.Comment !== note) throw new Error('Case run result verification failed; read the current result before retrying')
+    if (after.Status !== input.status || !equivalentMarkup(after.Comment, note)) throw new Error('Case run result verification failed; read the current result before retrying')
     return after
   }
 
@@ -457,21 +539,45 @@ export class TestManagement {
     const target = await this.tp.api<Ref & { ResourceType?: string }>('GET', ['Generals', assertId(generalId)])
     if (target.ResourceType === 'TestPlanRun') await this.editable(generalId)
     const before = new Set((await this.attachments(generalId)).map(file => file.Id))
-    const response = await this.tp.addAttachedFile(generalId, source)
-    if (!response) throw new Error('Upload returned an empty response; inspect attachments before retrying')
+    let uploadError: unknown
+    try { await this.tp.addAttachedFile(generalId, source) } catch (error) { uploadError = error }
+    if (uploadError) {
+      const recovered = (await this.attachments(generalId)).filter(file => !before.has(file.Id) && file.Name === fileName && (file.Size === undefined || file.Size === size))
+      if (recovered.length === 1) return { generalId, attachments: recovered }
+      throw new Error('Upload outcome is unknown; inspect attachments before retrying: ' + JSON.stringify(errorDetails(uploadError)))
+    }
     const newFiles = (await this.attachments(generalId)).filter(file => !before.has(file.Id) && file.Name === fileName && (file.Size === undefined || file.Size === size))
     if (newFiles.length !== 1) throw new Error('Upload could not be uniquely verified; inspect attachments before retrying')
     return { generalId, attachments: newFiles }
   }
 
-  async uploadRunEvidence(testCaseRunId: string, source: { filePath: string } | { fileContent: string; fileName: string }) {
+  async uploadRunEvidence(testCaseRunId: string, source: { filePath: string } | { fileContent: string; fileName: string }, operationId?: string) {
     const run = await this.tp.api<CaseRun>('GET', ['TestCaseRuns', assertId(testCaseRunId)])
     await this.editable(String(run.TestPlanRun.Id))
-    const result = await this.upload(String(run.TestPlanRun.Id), source)
-    const note = (run.Comment || '') + '\nEvidence for TestCaseRun ' + testCaseRunId + ': attachment IDs ' + result.attachments.map(file => file.Id).join(', ')
-    await this.tp.api('POST', ['TestCaseRuns', testCaseRunId], { Comment: note })
-    const after = await this.tp.api<CaseRun>('GET', ['TestCaseRuns', testCaseRunId])
-    if (after.Comment !== note) throw new Error('File uploaded but case-run evidence note could not be verified; do not re-upload')
-    return { ...result, testCaseRunId }
+    const result = operationId ? await (new (await import('./attachments.js')).Attachments(this.tp)).create({ entityType: 'TestPlanRuns', entityId: String(run.TestPlanRun.Id) }, source, operationId) : await this.upload(String(run.TestPlanRun.Id), source)
+    const uploaded = {
+      ...result, testCaseRunId, storageEntity: 'TestPlanRun', evidenceField: 'TestCaseRun.Comment',
+      directCaseRunAttachment: false,
+    }
+    if ('verified' in result && !result.verified) return { ...uploaded, status: 'partial', verified: false, recovery: 'Upload is incomplete. Reuse this operationId to recover files before updating the case result.' }
+    try {
+      // Re-read after uploading to preserve observations saved while the file was being sent.
+      const current = await this.tp.api<CaseRun>('GET', ['TestCaseRuns', testCaseRunId])
+      if (current.TestPlanRun.Id !== run.TestPlanRun.Id) throw new Error('Case run parent changed during upload')
+      await this.editable(String(current.TestPlanRun.Id))
+      const referenced = referencedEvidence(current.Comment || '')
+      const previous = (await this.attachments(String(current.TestPlanRun.Id))).filter(file => referenced.has(String(file.Id)))
+      const allEvidence = [...new Map([...previous, ...result.attachments as Attachment[]].map(file => [file.Id, file])).values()]
+      const note = evidenceComment(current.Comment || '', testCaseRunId, allEvidence)
+      await this.tp.api('POST', ['TestCaseRuns', testCaseRunId], { Comment: note })
+      const after = await this.tp.api<CaseRun>('GET', ['TestCaseRuns', testCaseRunId])
+      if (!equivalentMarkup(after.Comment, note)) throw new Error('Case-run Final Result could not be verified')
+      return { ...uploaded, status: 'complete', verified: true, comment: after.Comment }
+    } catch (error) {
+      return {
+        ...uploaded, status: 'partial', verified: false, error: errorDetails(error),
+        recovery: 'File upload succeeded. Do not re-upload. Read the TestCaseRun Final Result and use the returned attachment IDs to restore missing evidence.',
+      }
+    }
   }
 }

@@ -15,6 +15,7 @@ export async function handleGetFeatureContent(tp: TpClient, id: string) {
   }
 
   const result = {
+    iteration: feature.Iteration, teamIteration: feature.TeamIteration, assignments: feature.Assignments, roleEfforts: feature.RoleEfforts,
     name: feature.Name,
     id: feature.Id,
     description: '',

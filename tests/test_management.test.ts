@@ -174,12 +174,111 @@ describe('execution management', () => {
     expect(writes(f.tp)).toHaveLength(0)
   })
 
-  it('uploads screenshots to the plan run and records the exact case-run reference', async () => {
+  it('uploads screenshots and embeds them in the exact case-run Final Result', async () => {
     const f = fixture()
     const result = await f.service.uploadRunEvidence('40', { fileContent: 'SGVsbG8=', fileName: 'evidence.png' })
     expect(result).toMatchObject({ generalId: '20', testCaseRunId: '40', attachments: [{ Id: 71 }] })
     expect(f.cases['40'].Comment).toContain('TestCaseRun 40')
     expect(f.cases['40'].Comment).toContain('71')
+    expect(f.cases['40'].Comment).toContain('<img src="/Attachment.aspx?AttachmentID=71"')
+    expect(result).toMatchObject({ status: 'complete', verified: true, storageEntity: 'TestPlanRun', evidenceField: 'TestCaseRun.Comment', directCaseRunAttachment: false })
+  })
+
+  it('keeps uploaded screenshots and support files when the actual result is updated', async () => {
+    const f = fixture()
+    await f.service.uploadRunEvidence('40', { fileContent: 'SGVsbG8=', fileName: 'evidence.png' })
+    f.files.push({ Id: 72, Name: 'execution.log', MimeType: 'text/plain', General: { Id: 20 } })
+    f.cases['40'].Comment += '<p><a href="/Attachment.aspx?AttachmentID=72">execution.log</a></p>'
+    const result = await f.service.updateCaseRun({ id: '40', status: 'Passed', comment: 'Latest observed result', evidenceAttachmentIds: ['70'] })
+    expect(result.Comment).toContain('Latest observed result')
+    for (const id of [70, 71, 72]) expect(result.Comment).toContain('/Attachment.aspx?AttachmentID=' + id)
+    expect(result.Comment?.match(/<img /g)).toHaveLength(2)
+  })
+
+  it('embeds legacy screenshot ID references and ignores attachments from other runs', async () => {
+    const f = fixture()
+    f.files.push({ Id: 72, Name: 'other.png', MimeType: 'image/png', General: { Id: 99 } })
+    f.cases['40'].Comment = 'Evidence for TestCaseRun 40: attachment IDs 70, 72'
+    const result = await f.service.updateCaseRun({ id: '40', status: 'Passed', comment: 'Observed result', evidenceAttachmentIds: ['70'] })
+    expect(result.Comment).toContain('<img src="/Attachment.aspx?AttachmentID=70"')
+    expect(result.Comment).not.toContain('AttachmentID=72')
+  })
+
+  it('preserves current observations saved during file upload', async () => {
+    const f = fixture()
+    const upload = f.tp.addAttachedFile.getMockImplementation()!
+    f.tp.addAttachedFile.mockImplementation(async (generalId: string) => {
+      f.cases['40'].Comment = '<p>Concurrent observation</p>'
+      return upload(generalId)
+    })
+    await f.service.uploadRunEvidence('40', { fileContent: 'SGVsbG8=', fileName: 'evidence.png' })
+    expect(f.cases['40'].Comment).toContain('<p>Concurrent observation</p>')
+    expect(f.cases['40'].Status).toBe('NotRun')
+  })
+
+  it('returns uploaded IDs and recovery instructions if saving the result fails', async () => {
+    const f = fixture()
+    const api = f.tp.api.getMockImplementation()!
+    f.tp.api.mockImplementation(async (method: string, path: string[], body?: any) => {
+      if (method === 'POST' && path[0] === 'TestCaseRuns') throw new Error('Write timed out')
+      return api(method, path, body)
+    })
+    const result = await f.service.uploadRunEvidence('40', { fileContent: 'SGVsbG8=', fileName: 'evidence.png' })
+    expect(result).toMatchObject({ status: 'partial', verified: false, attachments: [{ Id: 71 }] })
+    expect(result.recovery).toContain('Do not re-upload')
+    expect(f.tp.addAttachedFile).toHaveBeenCalledTimes(1)
+  })
+
+  it('escapes file names and uses credential-free download links for supporting files', async () => {
+    const f = fixture()
+    const name = '<img src=x onerror=alert(1)>.log'
+    f.tp.addAttachedFile.mockImplementation(async (generalId: string) => {
+      f.files.push({ Id: 71, Name: name, MimeType: 'text/plain', Uri: 'https://example.invalid/?access_token=secret', General: { Id: Number(generalId) } })
+      return 'Uploaded'
+    })
+    const result = await f.service.uploadRunEvidence('40', { fileContent: 'SGVsbG8=', fileName: name })
+    expect(result.comment).toContain('&lt;img src=x onerror=alert(1)&gt;.log')
+    expect(result.comment).toContain('href="/Attachment.aspx?AttachmentID=71"')
+    expect(result.comment).not.toContain('<img ')
+    expect(result.comment).not.toContain('secret')
+  })
+
+  it('replaces its evidence section without duplicating screenshots on repeated result updates', async () => {
+    const f = fixture()
+    const first = await f.service.updateCaseRun({ id: '40', status: 'Passed', comment: 'Observed success', evidenceAttachmentIds: ['70'] })
+    const second = await f.service.updateCaseRun({ id: '40', status: 'Passed', comment: first.Comment!, evidenceAttachmentIds: ['70'] })
+    expect(second.Comment?.match(/<img /g)).toHaveLength(1)
+    expect(second.Comment).toBe(first.Comment)
+  })
+
+  it('keeps earlier screenshots when another file is uploaded', async () => {
+    const f = fixture()
+    await f.service.uploadRunEvidence('40', { fileContent: 'SGVsbG8=', fileName: 'evidence.png' })
+    f.tp.addAttachedFile.mockImplementation(async (generalId: string) => {
+      f.files.push({ Id: 72, Name: 'second.png', MimeType: 'image/png', General: { Id: Number(generalId) } })
+      return 'Uploaded'
+    })
+    await f.service.uploadRunEvidence('40', { fileContent: 'SGVsbG8=', fileName: 'second.png' })
+    expect(f.cases['40'].Comment.match(/<img /g)).toHaveLength(2)
+    expect(f.cases['40'].Comment.match(/Evidence for TestCaseRun 40/g)).toHaveLength(1)
+  })
+
+  it('does not upload a file into a completed run', async () => {
+    const f = fixture(); f.runs['20'].EntityState.Id = 2
+    await expect(f.service.uploadRunEvidence('40', { fileContent: 'SGVsbG8=', fileName: 'evidence.png' })).rejects.toThrow('read-only')
+    expect(f.tp.addAttachedFile).not.toHaveBeenCalled()
+  })
+
+  it('reports partial success when the saved evidence cannot be verified', async () => {
+    const f = fixture()
+    const api = f.tp.api.getMockImplementation()!
+    f.tp.api.mockImplementation(async (method: string, path: string[], body?: any) => {
+      if (method === 'POST' && path[0] === 'TestCaseRuns') return { ...f.cases['40'] }
+      return api(method, path, body)
+    })
+    const result = await f.service.uploadRunEvidence('40', { fileContent: 'SGVsbG8=', fileName: 'evidence.png' })
+    expect(result).toMatchObject({ status: 'partial', verified: false, attachments: [{ Id: 71 }] })
+    expect(result.error?.message).toContain('could not be verified')
   })
 
   it('returns individual batch failures without losing successful results', async () => {

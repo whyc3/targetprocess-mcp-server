@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { registerExtendedTools } from './extended_tools.js';
 
 import { ReliableMcpServer } from "./reliable_server.js";
 import { validateConfiguration } from "./config.js";
@@ -249,6 +250,7 @@ server.registerTool(
     title: 'Search TP cards by keyword with filters',
     description: 'Search Targetprocess cards by name and/or description with pagination, sorting, and filters for state, owner, project, release, and tags.',
     inputSchema: {
+      teamId: z.string().regex(/^[1-9]\d*$/).optional(), iterationId: z.string().regex(/^[1-9]\d*$/).optional(), teamIterationId: z.string().regex(/^[1-9]\d*$/).optional(), testerId: z.string().regex(/^[1-9]\d*$/).optional(), roleId: z.string().regex(/^[1-9]\d*$/).optional(),
       keyword: z.string()
         .describe('Keyword or phrase to search for'),
       entityType: z.enum(["UserStories", "Bugs", "Features", "Generals"])
@@ -1308,6 +1310,7 @@ server.registerTool(
     }
 
     return {
+      isError: (testPlanResponse as TP.TestPlan & { verified?: boolean }).verified === false,
       content: [{
         type: 'text',
         text: JSON.stringify(testPlanResponse)
@@ -2085,17 +2088,19 @@ server.registerTool(
   'get_bug_workflows',
   {
     title: 'Get bug workflows',
-    description: 'Get all Targetprocess bug workflows',
+    description: 'Get bug workflows scoped to an explicit project/process; otherwise uses configured defaults.',
+    inputSchema: { projectId: z.string().regex(/^[1-9]\d*$/).optional(), processId: z.string().regex(/^[1-9]\d*$/).optional() },
   },
-  async () => handleGetBugWorkflows(tp))
+  async p => handleGetBugWorkflows(tp, p))
 
 server.registerTool(
   'get_user_story_workflows',
   {
     title: 'Get User Story workflows',
-    description: 'Get all Targetprocess user story workflows, with sub-states',
+    description: 'Get project/process-specific User Story workflows with sub-states.',
+    inputSchema: { projectId: z.string().regex(/^[1-9]\d*$/).optional(), processId: z.string().regex(/^[1-9]\d*$/).optional() },
   },
-  async () => handleGetUserStoryWorkflows(tp)
+  async p => handleGetUserStoryWorkflows(tp, p)
 )
 
 server.registerTool(
@@ -2385,6 +2390,7 @@ server.registerTool(
 )
 
 registerTestManagementTools(server, tp);
+registerExtendedTools(server, tp);
 
 async function main() {
   validateConfiguration();

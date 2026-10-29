@@ -1,3 +1,4 @@
+import { Attachments, sourceBytes } from './attachments.js'
 import { isAbsolute } from 'node:path'
 import { z } from 'zod'
 import type { McpServer, ToolCallback } from '@modelcontextprotocol/sdk/server/mcp.js'
@@ -16,7 +17,7 @@ const caseFields = {
 const execution = {
   id, status: text.describe('Exact status supported by this tenant, e.g. Passed or Failed; inspect test-management metadata for other values'),
   comment: text.describe('Observed result or reason; expected-result text is not execution evidence'),
-  evidenceAttachmentIds: z.array(id).min(1).max(20).describe('Screenshot IDs attached to this exact Test Plan Run'),
+  evidenceAttachmentIds: z.array(id).min(1).max(20).describe('Screenshot IDs stored on this exact Test Plan Run; embedded in the TestCaseRun Final Result'),
 }
 const uploadFields = {
   filePath: text.refine(isAbsolute, 'Use an absolute path on the MCP server host').optional(),
@@ -49,6 +50,7 @@ async function result(promise: Promise<unknown>) {
 
 export function registerTestManagementTools(server: McpServer, tp: TpClient) {
   const management = new TestManagement(tp)
+  const attachmentService = new Attachments(tp)
   function register<S extends z.ZodRawShape>(
     name: string, description: string, schema: S,
     callback: (params: z.infer<z.ZodObject<S>>) => Promise<unknown>, readOnly = false,
@@ -71,7 +73,7 @@ export function registerTestManagementTools(server: McpServer, tp: TpClient) {
     })
 
   register('get_test_management_metadata', 'Inspect tenant fields, relationships, and supported values before using test-management tools.',
-    { resource: z.enum(['TestCases', 'TestPlans', 'TestPlanRuns', 'TestCaseRuns', 'TestStepRuns', 'TestSteps', 'EntityStates', 'Bugs', 'Attachments']) },
+    { resource: z.enum(['TestCases', 'TestPlans', 'TestPlanRuns', 'TestCaseRuns', 'TestStepRuns', 'TestSteps', 'EntityStates', 'Bugs', 'Attachments', 'Users', 'Projects', 'Processes', 'Assignments', 'Roles', 'RoleEfforts', 'AssignedEfforts', 'UserStories', 'Features', 'Generals', 'Comments', 'UserStoryHistories', 'BugHistories', 'FeatureHistories', 'TaskHistories', 'EpicHistories', 'RequestHistories']) },
     p => management.metadata(p.resource), true)
 
   register('create_test_case', 'Create one case with optional steps and plan. Empty steps creates a draft. Project is inherited from the plan; standalone cases require projectId or TP_PROJECT_ID. Creation returns complete or partial with the created ID.',
@@ -96,7 +98,7 @@ export function registerTestManagementTools(server: McpServer, tp: TpClient) {
   register('create_test_plan_run', 'Create a new execution cycle. Targetprocess generates case/step runs automatically. Returns the created ID even if subsequent verification fails. Never retry blindly after a timeout.',
     { testPlanId: id, name: text.optional(), description: z.string().optional(), buildId: id.optional() }, p => management.createRun(p.testPlanId, p))
   register('list_test_plan_runs', 'List runs by plan or project with pagination and optional latest-run filtering.',
-    { testPlanId: id.optional(), projectId: id.optional(), latestOnly: z.boolean().default(false), ...pagination }, p => management.listRuns(p), true)
+    { testPlanId: id.optional(), projectId: id.optional(), latestOnly: z.boolean().default(false), orderBy: z.enum(['CreateDate', 'Id', 'StartDate']).default('CreateDate'), orderDirection: z.enum(['asc', 'desc']).default('desc'), ...pagination }, p => management.listRuns(p), true)
   register('get_test_plan_run', 'Read a run and all generated case runs, following nested runs using tenant metadata. Fails explicitly if nested coverage cannot be established.',
     { id }, p => management.getRun(p.id), true)
   register('get_test_case_run', 'Read one execution record with its generated step runs and linked bugs.',
@@ -118,11 +120,11 @@ export function registerTestManagementTools(server: McpServer, tp: TpClient) {
     { results: z.array(z.object(execution)).min(1).max(100) }, p => management.batchResults(p.results))
 
   register('upload_attachment', 'Upload exactly one local file or base64 file to a General entity and verify the new attachment. For execution screenshots use attach_test_run_evidence.',
-    { generalId: id, ...uploadFields }, async p => management.upload(p.generalId, uploadSource(p)))
+    { generalId: id, ...uploadFields, operationId: z.string().min(1).max(200).optional() }, async p => { const source = uploadSource(p); const local = await sourceBytes(source); return attachmentService.create({ entityType: 'Generals', entityId: p.generalId }, source, p.operationId ?? p.generalId + ':' + local.name + ':' + local.sha256) })
   register('list_attachments', 'List all attachments on a General entity, with attachment IDs, names, MIME types, and URLs.',
-    { generalId: id }, p => management.attachments(p.generalId), true)
-  register('attach_test_run_evidence', 'Upload evidence to the parent Test Plan Run and record the attachment IDs in the exact Test Case Run note. This avoids assuming TestCaseRun is a General entity.',
-    { testCaseRunId: id, ...uploadFields }, async p => management.uploadRunEvidence(p.testCaseRunId, uploadSource(p)))
+    { generalId: id }, async p => (await attachmentService.list({ entityType: 'Generals', entityId: p.generalId }, 1000000)).items, true)
+  register('attach_test_run_evidence', 'Upload evidence and embed screenshots or file download links in this exact TestCaseRun Final Result. Preserves previous evidence and verifies saved content. Files are stored on the parent TestPlanRun; TestCaseRun has no separate attachment collection. Partial failures return uploaded IDs; do not re-upload.',
+    { testCaseRunId: id, ...uploadFields, operationId: z.string().min(1).max(200).optional() }, async p => { const source = uploadSource(p); const local = await sourceBytes(source); return management.uploadRunEvidence(p.testCaseRunId, source, p.operationId ?? p.testCaseRunId + ':' + local.name + ':' + local.sha256) })
   register('link_bug_to_test_case_run', 'Link an existing bug to an execution through the Bugs relationship, after metadata validation. Preserves previous bug links and verifies the result.',
     { testCaseRunId: id, bugId: id }, p => management.linkBug(p.testCaseRunId, p.bugId))
 

@@ -325,3 +325,7 @@ npx vitest            # watch mode
 | `test_plan_tools.test.ts` | `get_test_plan_by_id`, `get_test_plan_test_cases_by_id`, `get_test_cases_by_id`, `get_test_plan_test_cases_with_steps_by_id`, `get_test_case_by_id`, `update_test_case_by_id`, `delete_test_case_by_id`, `add_test_case_step_by_id`, `update_test_case_step_by_id`, `delete_test_case_step_by_id` |
 | `test_case_tools.test.ts` | `get_test_case_by_id`, `update_test_case_by_id`, `add_test_case_step_by_id`, `update_test_case_step_by_id`, `delete_test_case_step_by_id` |
 | `workflow_tools.test.ts` | `get_processes`, `get_process_workflows`, `get_bug_workflows`, `get_user_story_workflows`, `get_relation_types`, `get_version` |
+
+## MCP 2.8.0
+
+See [delivery checklist, tools, configuration, verification, and reconnect instructions](doc/MCP_2_8_DELIVERY.md) for history, QA workload, complete discovery, attachment CRUD/processing, and mutation-verification fixes.

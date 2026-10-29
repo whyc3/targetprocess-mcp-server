@@ -103,13 +103,27 @@ Alternatively provide raw base64 fileContent and fileName. Use exactly one file
 source. Paths must be absolute on the MCP server host. Uploads are limited to
 25 MiB. Generic upload_attachment accepts generalId.
 
-Execution evidence is uploaded to the parent Test Plan Run and referenced in the
-specific Test Case Run note. This avoids assuming a TestCaseRun is a General
-entity accepted by UploadFile.ashx. Uploaded attachments are read back.
+attach_test_run_evidence uploads the backing file to the parent Test Plan Run and
+embeds screenshots directly in the specific TestCaseRun Final Result (Comment).
+Other file types appear as download links in that same result. Existing observations,
+screenshots, and file links are preserved. File names are escaped when generating
+HTML, and links never contain API credentials. Uploaded files and saved result
+content are read back and verified.
+
+Targetprocess supports inline images in a TestCaseRun Final Result but has no
+separate attachment collection on TestCaseRun. The tool reports storageEntity,
+evidenceField, and directCaseRunAttachment explicitly. See
+[Targetprocess guidance](https://targetprocess.com/guide/faq/attach-files-and-images-to-test-runs/).
+
+If upload succeeds but saving or verifying the Final Result fails, the tool returns
+an MCP error with status partial, the uploaded attachment IDs, and recovery guidance.
+Inspect the result before retrying; do not upload the same file again.
 
 update_test_case_run accepts id, exact tenant-supported status, comment containing
 the observed result, and evidenceAttachmentIds. At least one screenshot attached
-to the same run is required. Status and note are verified after writing.
+to the same run is required. Screenshots are embedded in the Final Result, and
+previous evidence remains when the observed result changes. Status and result
+content are verified after writing.
 Filename/MIME checks identify image attachments; the caller must ensure the image
 shows the relevant observation without credentials or unrelated sensitive data.
 

@@ -36,10 +36,14 @@ export class TpHttp {
   }) {}
 
   async request<T>(method: 'GET' | 'POST' | 'DELETE', path: string, query: Query = {}, body?: unknown, textResponse = false): Promise<T> {
-    const operation = method + ' ' + path
-    const params = { ...query, access_token: this.options.token }
-    const search = Object.entries(params).map(([key, value]) => encodeURIComponent(key) + '=' + encodeURIComponent(value)).join('&')
-    const url = this.options.url.replace(/\/+$/, '') + path + (path.endsWith('.ashx') ? '?' : '/?') + search
+    const base = new URL(this.options.url || 'https://targetprocess.invalid')
+    const target = new URL(path, base)
+    if (target.origin !== base.origin || target.username || target.password || !/^\/(?:api\/v[12]\/|UploadFile\.ashx$)/i.test(target.pathname)) throw new Error('Untrusted API or pagination URL')
+    const operation = method + ' ' + target.pathname
+    if (!target.pathname.endsWith('/') && !target.pathname.endsWith('.ashx')) target.pathname += '/'
+    for (const [key, value] of Object.entries(query)) target.searchParams.set(key, String(value))
+    target.searchParams.set('access_token', this.options.token)
+    const url = target.toString().replace(/\+/g, '%20')
     const attempts = method === 'GET' ? (this.options.readRetries ?? 2) + 1 : 1
 
     for (let attempt = 0; attempt < attempts; attempt++) {

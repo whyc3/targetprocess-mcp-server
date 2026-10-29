@@ -95,19 +95,52 @@ export class TpClient {
     return this.http.request<T>(method, this.v1 + '/' + path.map(encodeURIComponent).join('/'), { format: 'json', ...query }, data)
   }
 
+  async apiPage<T>(next: string): Promise<T> {
+    return this.http.request<T>('GET', next)
+  }
+
   async apiAll<T>(path: string[], query: Query = {}): Promise<T[]> {
-    const items: T[] = []
-    for (let skip = 0; skip < 1000000; skip += 100) {
-      const page = await this.api<TpResponse<T>>('GET', path, undefined, { ...query, take: 100, skip })
+    const items: T[] = [], seen = new Set<string>()
+    let page = await this.api<TpResponse<T>>('GET', path, undefined, { take: 100, ...query })
+    for (let count = 0; count < 10000; count++) {
       if (!page || !Array.isArray(page.Items)) throw new Error('Invalid collection response for ' + path.join('/'))
       items.push(...page.Items)
       if (!page.Next) return items
-      if (!page.Items.length) throw new Error('Pagination returned an empty page with a next page')
+      if (!page.Items.length || seen.has(page.Next)) throw new Error('Pagination failed to advance; collection is incomplete')
+      seen.add(page.Next)
+      page = await this.apiPage<TpResponse<T>>(page.Next)
     }
-    throw new Error('Pagination limit reached; narrow the query')
+    throw new Error('Pagination limit reached; collection is incomplete')
   }
 
-  private async processId(): Promise<string> {
+  async validateCardState(resource: string, stateId: string, cardId?: string, projectId?: string) {
+    if (!/^[1-9]\d*$/.test(stateId)) throw new Error('Use a positive integer state ID')
+    let currentWorkflow: number | undefined
+    if (cardId) {
+      const card = await this.api<{ Id?: number; Project?: { Id: number }; EntityState?: { Workflow?: { Id: number } } }>('GET', [resource, cardId], undefined, { include: '[Id,Project,EntityState[Workflow]]' })
+      if (String(card.Id) !== cardId) throw new Error('Target card identity mismatch')
+      if (!card.Project?.Id) throw new Error('Target card project is unavailable')
+      currentWorkflow = card.EntityState?.Workflow?.Id
+      if (!projectId || projectId === String(card.Project.Id)) projectId = String(card.Project.Id)
+      else currentWorkflow = undefined
+    }
+    const processId = await this.processId({ projectId: projectId || config.tp.projectId })
+    const type = ({ Bugs: 'Bug', UserStories: 'UserStory', Features: 'Feature', Tasks: 'Task' } as Record<string, string>)[resource]
+    if (!type) throw new Error('Unsupported workflow entity type')
+    const allowed = await this.apiAll<{ Id: number; Workflow?: { Id: number } }>(['EntityStates'], { where: "EntityType.Name eq '" + type + "' and Workflow.Process.Id eq " + processId, include: '[Id,Workflow[Id,ParentWorkflow]]' })
+    const selected = allowed.find(state => String(state.Id) === stateId)
+    if (!selected || (currentWorkflow && selected.Workflow?.Id !== currentWorkflow)) throw new Error('State does not belong to the target card workflow; no update was attempted')
+    return selected
+  }
+
+  private async processId(scope: { projectId?: string; processId?: string } = {}): Promise<string> {
+    if (scope.projectId) {
+      const project = await this.api<{ Process?: { Id: number } }>('GET', ['Projects', scope.projectId])
+      if (!project?.Process?.Id) throw new Error('Project process is unavailable')
+      if (scope.processId && scope.processId !== String(project.Process.Id)) throw new Error('Process does not belong to project')
+      return String(project.Process.Id)
+    }
+    if (scope.processId) return scope.processId
     if (config.tp.processId) return config.tp.processId
     if (config.tp.projectId) {
       const project = await this.api<{ Process?: { Id: number } }>('GET', ['Projects', config.tp.projectId])
@@ -122,13 +155,16 @@ export class TpClient {
   }
 
   private async getAllOrNull<T>(params: TpClientParameters): Promise<T[] | null> {
-    const items: T[] = []
-    for (let skip = 0; skip < 1000000; skip += 100) {
-      const page = await this.get<TpResponse<T>>({ ...params, param: { ...params.param, take: 100, skip } })
+    const items: T[] = [], seen = new Set<string>()
+    let page = await this.get<TpResponse<T>>({ ...params, param: { ...params.param, take: 100, skip: 0 } })
+    for (let count = 0; count < 10000; count++) {
       if (!page) return null
+      if (!Array.isArray(page.Items)) throw new Error('Invalid collection response')
       items.push(...page.Items)
       if (!page.Next) return items
-      if (!page.Items.length) throw new Error('Invalid pagination response')
+      if (!page.Items.length || seen.has(page.Next)) throw new Error('Invalid pagination response; collection is incomplete')
+      seen.add(page.Next)
+      page = await this.apiPage<TpResponse<T>>(page.Next)
     }
     throw new Error('Pagination limit reached')
   }
@@ -206,6 +242,12 @@ export class TpClient {
       clauses.push(`Tags contains '${this.escapeWhereValue(tag)}'`)
     }
 
+    for (const [value, field] of [[filters?.iterationId, 'Iteration.Id'], [filters?.teamIterationId, 'TeamIteration.Id'], [filters?.teamId, 'AssignedTeams.Team.Id'], [filters?.testerId, 'Assignments.GeneralUser.Id'], [filters?.roleId, 'Assignments.Role.Id']]) {
+      if (value) {
+        if (!/^[1-9]\d*$/.test(value)) throw new Error('Use positive integer filter IDs')
+        clauses.push(field + ' eq ' + value)
+      }
+    }
     return clauses.join(" and ")
   }
 
@@ -349,6 +391,7 @@ export class TpClient {
     removeTags,
     teamIterationId
   }: { id: string, title?: string, description?: string, projectId?: string, teamId?: string, teamAssignmentId?: string, entityStateId?: string, featureId?: string, tags?: string, addTags?: string, removeTags?: string, teamIterationId?: string }): Promise<T> {
+    if (entityStateId) await this.validateCardState('UserStories', entityStateId, id, projectId)
     const userStory: Record<string, any> = { "Id": id }
 
     if (title) userStory["Name"] = title
@@ -377,6 +420,7 @@ export class TpClient {
   }
 
   async updateBug<T>({ id, title, bugContent, origin, releaseId, projectId, teamId, entityStateId, tags, addTags, removeTags, teamIterationId }: { id: string, title?: string, bugContent?: string, origin?: string, releaseId?: string, projectId?: string, teamId?: string, entityStateId?: string, tags?: string, addTags?: string, removeTags?: string, teamIterationId?: string }): Promise<T> {
+    if (entityStateId) await this.validateCardState('Bugs', entityStateId, id, projectId)
     const bug: Record<string, any> = { "Id": id }
 
     if (title) bug["Name"] = title
@@ -406,6 +450,7 @@ export class TpClient {
   }
 
   async createBugOnly<T>({ title, bugContent, origin = "Manual QA", releaseId, projectId, teamId, entityStateId, tags, teamIterationId }: BugInputSchema): Promise<T> {
+    if (entityStateId) await this.validateCardState('Bugs', entityStateId, undefined, projectId)
     const bug: Record<string, any> = {
       "Name": title,
       "Project": {
@@ -549,6 +594,7 @@ export class TpClient {
     removeTags,
     teamIterationId
   }: { id: string, title?: string, description?: string, epicId?: string, releaseId?: string, projectId?: string, teamId?: string, entityStateId?: string, tags?: string, addTags?: string, removeTags?: string, teamIterationId?: string }): Promise<T> {
+    if (entityStateId) await this.validateCardState('Features', entityStateId, id, projectId)
     const feature: Record<string, any> = { "Id": id }
 
     if (title) feature["Name"] = title
@@ -675,7 +721,9 @@ export class TpClient {
   }
 
   async createTestPlan<T>(title: string, resourceId: string, resourceType: 'UserStory' | 'Bug' | 'Feature' = 'UserStory', options?: { description?: string; startDate?: string; endDate?: string; parentTestPlanId?: string; projectId?: string }): Promise<T> {
-    const source = await this.api<{ Project?: { Id: number } }>('GET', ['Generals', resourceId])
+    const source = await this.api<{ Id?: number; Name?: string; ResourceType?: string; Project?: { Id: number } }>('GET', ['Generals', resourceId])
+    if (source?.Id !== undefined && String(source.Id) !== resourceId) throw new Error('Linked card identity mismatch')
+    if (source.ResourceType && source.ResourceType !== resourceType) throw new Error('Linked card type mismatch')
     const projectId = source?.Project?.Id ? String(source.Project.Id) : options?.projectId || config.tp.projectId
     if (!projectId) throw new Error('Cannot resolve the linked card project')
     if (options?.projectId && options.projectId !== projectId) throw new Error('Project differs from the linked card project')
@@ -691,21 +739,19 @@ export class TpClient {
       "LinkedGeneral": {
         "ResourceType": "General",
         "Id": resourceId,
-        "Name": title,
       },
       "LinkedAssignable": {
         "ResourceType": "Assignable",
         "Id": resourceId,
-        "Name": title,
       },
     }
 
     if (resourceType === 'UserStory') {
-      testPlan["LinkedUserStory"] = { "ResourceType": "UserStory", "Id": resourceId, "Name": title }
+      testPlan["LinkedUserStory"] = { "ResourceType": "UserStory", "Id": resourceId }
     } else if (resourceType === 'Bug') {
-      testPlan["LinkedBug"] = { "ResourceType": "Bug", "Id": resourceId, "Name": title }
+      testPlan["LinkedBug"] = { "ResourceType": "Bug", "Id": resourceId }
     } else if (resourceType === 'Feature') {
-      testPlan["LinkedFeature"] = { "ResourceType": "Feature", "Id": resourceId, "Name": title }
+      testPlan["LinkedFeature"] = { "ResourceType": "Feature", "Id": resourceId }
     }
 
     if (options?.description) testPlan["Description"] = options.description
@@ -713,10 +759,20 @@ export class TpClient {
     if (options?.endDate) testPlan["EndDate"] = options.endDate
     if (options?.parentTestPlanId) testPlan["ParentTestPlans"] = [{ "Id": options.parentTestPlanId }]
 
-    return this.post<any, T>({
+    const created = await this.post<any, { Id: number }>({
       pathParam: ["testPlans"],
       param: { "format": "json" },
-    }, testPlan) as T
+    }, testPlan)
+    if (!created?.Id) throw new Error('Creation returned no ID; inspect existing plans before retrying')
+    try {
+      const plan = await this.api<{ Id: number; Name: string; LinkedGeneral?: { Id: number } }>('GET', ['TestPlans', String(created.Id)])
+      const linked = await this.api<{ Id: number; Name: string }>('GET', ['Generals', resourceId])
+      if (plan.Id !== created.Id || plan.Name !== testPlan.Name || String(plan.LinkedGeneral?.Id) !== resourceId) throw new Error('Created plan or link verification failed')
+      if (String(linked.Id) !== resourceId || linked.Name !== source.Name) throw new Error('Linked card identity/title changed')
+      return { ...created, ...plan, verified: true, linkedCard: linked } as T
+    } catch (error) {
+      return { ...created, status: 'partial', verified: false, verificationError: errorDetails(error), recovery: 'Read this plan ID and linked card before retrying; do not create another plan.' } as T
+    }
   }
 
   async createNestedTestPlan<T>({ title, parentTestPlanId, description }: { title: string, parentTestPlanId: string, description?: string }): Promise<T> {
@@ -745,10 +801,8 @@ export class TpClient {
   }
 
   async getUsers<T>(): Promise<T> {
-    return this.get<T>({
-      pathParam: ["Users"],
-      param: { "format": "json" },
-    }) as T
+    const Items = await this.apiAll<unknown>(['Users'])
+    return { Items, Next: '', Complete: true, Count: Items.length } as T
   }
 
   async addCommentWithUser<T>(userStoryId: string, comment: string, user: LoggedUser): Promise<T> {
@@ -852,6 +906,7 @@ export class TpClient {
       "take": take,
       "skip": skip,
       "where": this.buildSearchWhereClause({ field, keyword, filters }),
+      "include": entityType === "Generals" ? "[Id,Name,Description,EntityType,Owner,Project,Tags,CreateDate,ModifyDate]" : "[Id,Name,Description,EntityType,EntityState,Owner,Project,Tags,CreateDate,ModifyDate,Assignments[Id,Role,GeneralUser],RoleEfforts,AssignedTeams,Iteration[Id,Name,StartDate,EndDate],TeamIteration[Id,Name,StartDate,EndDate,Team[Id,Name]]]",
     }
 
     if (orderBy) {
@@ -1475,10 +1530,8 @@ export class TpClient {
   }
 
   async getProjects<T>(): Promise<T> {
-    return this.get<T>({
-      pathParam: ["Projects"],
-      param: { "format": "json" },
-    }) as T
+    const Items = await this.apiAll<unknown>(['Projects'])
+    return { Items, Next: '', Complete: true, Count: Items.length } as T
   }
 
   async getProcessWorkflows<T>({ processId }: { processId?: string }): Promise<T> {
@@ -1505,10 +1558,8 @@ export class TpClient {
   }
 
   async getProcesses<T>(): Promise<T> {
-    return this.get<T>({
-      pathParam: ["Processes"],
-      param: { "format": "json" },
-    }) as T
+    const Items = await this.apiAll<unknown>(['Processes'])
+    return { Items, Next: '', Complete: true, Count: Items.length } as T
   }
 
   async getTeamAssignments<T>(): Promise<T> {
@@ -1525,40 +1576,40 @@ export class TpClient {
     }) as T
   }
 
-  async getUserStoryWorkflows<T>(): Promise<T> {
+  async getUserStoryWorkflows<T>(scope: { projectId?: string; processId?: string } = {}): Promise<T> {
     return this.get<T>({
       pathParam: ["workflow"],
       param: {
         "format": "json",
         "select": `{Id,Name,Process,EntityType,EntityStates.Select({Id,Name}) as EntityStates}`,
-        "where": `(process.id=${await this.processId()} and entityType.name="userStory" and parentWorkflow=null)`,
-        "take": "1",
-      },
-      apiVersion: this.v2
-    }) as T
-  }
-
-  async getUserStoryWorkflowsWithSubStates<T>(): Promise<T> {
-    return this.get<T>({
-      pathParam: ["EntityState"],
-      param: {
-        "format": "json",
-        "select": `{id,name,isInitial,isFinal,isDefaultFinal,isPlanned,workflow:{workflow.id,process:{workflow.process.id}},entityType:{entityType.name},subEntityStates:subEntityStates.Select({id,name,entityType:{entityType.name},isInitial,isFinal,isDefaultFinal,isPlanned})}`,
-        "where": `(parentEntityState==null and workflow.process.id in [${await this.processId()}])`,
+        "where": `(process.id=${await this.processId(scope)} and entityType.name="userStory" and parentWorkflow=null)`,
         "take": "1000",
       },
       apiVersion: this.v2
     }) as T
   }
 
-  async getBugWorkflows<T>(): Promise<T> {
+  async getUserStoryWorkflowsWithSubStates<T>(scope: { projectId?: string; processId?: string } = {}): Promise<T> {
+    return this.get<T>({
+      pathParam: ["EntityState"],
+      param: {
+        "format": "json",
+        "select": `{id,name,isInitial,isFinal,isDefaultFinal,isPlanned,workflow:{workflow.id,process:{workflow.process.id}},entityType:{entityType.name},subEntityStates:subEntityStates.Select({id,name,entityType:{entityType.name},isInitial,isFinal,isDefaultFinal,isPlanned})}`,
+        "where": `(parentEntityState==null and workflow.process.id in [${await this.processId(scope)}])`,
+        "take": "1000",
+      },
+      apiVersion: this.v2
+    }) as T
+  }
+
+  async getBugWorkflows<T>(scope: { projectId?: string; processId?: string } = {}): Promise<T> {
     return this.get<T>({
       pathParam: ["workflow"],
       param: {
         "format": "json",
         "select": `{Id,Name,Process,EntityType,EntityStates.Select({Id,Name}) as EntityStates}`,
-        "where": `(process.id=${await this.processId()} and entityType.name="bug" and parentWorkflow=null)`,
-        "take": "1",
+        "where": `(process.id=${await this.processId(scope)} and entityType.name="bug" and parentWorkflow=null)`,
+        "take": "1000",
       },
       apiVersion: this.v2
     }) as T
@@ -1646,6 +1697,7 @@ export class TpClient {
   }
 
   async updateTask<T>({ id, title, description, entityStateId }: { id: string, title?: string, description?: string, entityStateId?: string }): Promise<T> {
+    if (entityStateId) await this.validateCardState('Tasks', entityStateId, id)
     const task: Record<string, any> = { "Id": id }
 
     if (title !== undefined) task["Name"] = title
@@ -2101,9 +2153,9 @@ export class TpClient {
         return planIds.has(testPlanId) ? 'restored' : 'unassigned';
     }
 
-  async addAttachedFile(generalId: string, source: { filePath: string } | { fileContent: string; fileName: string }): Promise<string> {
+  async addAttachedFile(generalId: string, source: ({ filePath: string } | { fileContent: string; fileName: string }) & { mimeType?: string }): Promise<string> {
     const fileName = 'filePath' in source ? basename(source.filePath) : source.fileName
-    const blob = new Blob(['filePath' in source ? readFileSync(source.filePath) : Buffer.from(source.fileContent, 'base64')])
+    const blob = new Blob(['filePath' in source ? readFileSync(source.filePath) : Buffer.from(source.fileContent, 'base64')], { type: source.mimeType || 'application/octet-stream' })
     const form = new FormData()
     form.append('generalId', generalId)
     form.append('file', blob, fileName)

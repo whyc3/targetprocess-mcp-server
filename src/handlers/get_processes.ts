@@ -2,7 +2,7 @@ import type { TpClient } from '../tp.js'
 import type * as TP from '../types.js'
 
 export async function handleGetProcesses(tp: TpClient) {
-  const response = await tp.getProcesses<TP.TpResponseV2<TP.ProcessV2>>()
+  const response = await tp.getProcesses<TP.TpResponseV2<TP.ProcessV2> & TP.TpResponse<TP.ProcessV2>>()
 
   if (!response) {
     return {
@@ -13,7 +13,7 @@ export async function handleGetProcesses(tp: TpClient) {
     }
   }
 
-  const items = response.items || []
+  const items = response.Items || response.items || []
   if (items.length === 0) {
     return {
       content: [{
@@ -24,6 +24,7 @@ export async function handleGetProcesses(tp: TpClient) {
   }
 
   return {
+    structuredContent: { complete: !response.Next, returned: items.length },
     content: [{ type: 'text' as const, text: JSON.stringify(items) }],
   }
 }

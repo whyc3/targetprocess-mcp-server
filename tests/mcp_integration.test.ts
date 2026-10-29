@@ -6,6 +6,7 @@ import path from 'node:path'
 import fs from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { server } from '../src/index.js'
+import { TestManagement } from '../src/test_management.js'
 
 const client = new Client({ name: 'test-client', version: '1.0.0' })
 beforeAll(async () => {
@@ -25,6 +26,15 @@ describe('MCP protocol integration', () => {
     }
     expect(tools.find(tool => tool.name === 'get_test_run_summary')?.annotations?.readOnlyHint).toBe(true)
     expect(tools.find(tool => tool.name === 'update_test_case_run')?.annotations?.readOnlyHint).toBe(false)
+  })
+
+  it('discovers attachment/history/workload tools with matching schemas and mutation annotations', async () => {
+    const tools = (await client.listTools()).tools
+    for (const name of ['get_status_history', 'get_tag_history', 'discover_directory', 'get_card_details', 'get_card_workflow', 'get_qa_workload', 'get_attachment', 'create_attachment', 'download_attachment', 'update_attachment', 'replace_attachment', 'delete_attachment', 'update_test_run_evidence', 'process_attachment', 'update_comment', 'delete_comment']) expect(tools.map(t => t.name)).toContain(name)
+    expect(tools.find(t => t.name === 'create_attachment')?.inputSchema.required).toContain('operationId')
+    expect(tools.find(t => t.name === 'delete_attachment')?.annotations).toMatchObject({ readOnlyHint: false, destructiveHint: true })
+    expect(tools.find(t => t.name === 'process_attachment')?.annotations?.readOnlyHint).toBe(true)
+    expect(tools.find(t => t.name === 'get_status_history')?.inputSchema.properties).toHaveProperty('statusScope')
   })
 
   it('preserves every tool exposed by the connected 2.6.10 server', async () => {
@@ -66,6 +76,24 @@ describe('MCP protocol integration', () => {
     } })
     expect(result.isError).toBe(true)
     expect(mocked).not.toHaveBeenCalled()
+  })
+
+  it('returns uploaded IDs as an MCP error when Final Result persistence fails', async () => {
+    const upload = vi.spyOn(TestManagement.prototype, 'uploadRunEvidence').mockResolvedValue({
+      generalId: '20', testCaseRunId: '40', attachments: [{ Id: 71, Name: 'evidence.png', General: { Id: 20 } }],
+      storageEntity: 'TestPlanRun', evidenceField: 'TestCaseRun.Comment', directCaseRunAttachment: false,
+      status: 'partial', verified: false, error: { message: 'Final Result verification failed' },
+      recovery: 'Do not re-upload',
+    })
+    try {
+      const result = await client.callTool({ name: 'attach_test_run_evidence', arguments: {
+        testCaseRunId: '40', fileContent: 'SGVsbG8=', fileName: 'evidence.png',
+      } })
+      expect(result.isError).toBe(true)
+      const data = JSON.parse((result.content as Array<{ text: string }>)[0].text)
+      expect(data.attachments[0].Id).toBe(71)
+      expect(data.recovery).toContain('Do not re-upload')
+    } finally { upload.mockRestore() }
   })
 
   it('rejects missing screenshot evidence before executing the result tool', async () => {

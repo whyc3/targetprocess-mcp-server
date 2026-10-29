@@ -21,6 +21,7 @@ export async function handleGetUsers(tp: TpClient) {
   }
 
   return {
+    structuredContent: { complete: !response.Next, returned: items.length },
     content: [{ type: 'text' as const, text: JSON.stringify(items) }],
   }
 }

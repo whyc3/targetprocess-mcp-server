@@ -1,8 +1,8 @@
 import type { TpClient } from '../tp.js'
 import type * as TP from '../types.js'
 
-export async function handleGetBugWorkflows(tp: TpClient) {
-  const response = await tp.getBugWorkflows<TP.TpResponseV2<TP.WorkflowV2>>()
+export async function handleGetBugWorkflows(tp: TpClient, scope: { projectId?: string; processId?: string } = {}) {
+  const response = await tp.getBugWorkflows<TP.TpResponseV2<TP.WorkflowV2>>(scope)
 
   if (!response) {
     return {
