@@ -1,3 +1,6 @@
 node_modules
 build
 .env
+
+# Local validation reports and evidence (may contain internal IDs)
+validation/

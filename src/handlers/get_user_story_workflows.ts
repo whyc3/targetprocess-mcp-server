@@ -1,8 +1,8 @@
 import type { TpClient } from '../tp.js'
 import type * as TP from '../types.js'
 
-export async function handleGetUserStoryWorkflows(tp: TpClient) {
-  const response = await tp.getUserStoryWorkflowsWithSubStates<TP.TpResponseV2<TP.WorkflowV2WithSubStates>>()
+export async function handleGetUserStoryWorkflows(tp: TpClient, scope: { projectId?: string; processId?: string } = {}) {
+  const response = await tp.getUserStoryWorkflowsWithSubStates<TP.TpResponseV2<TP.WorkflowV2WithSubStates>>(scope)
 
   if (!response) {
     return {

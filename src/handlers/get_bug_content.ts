@@ -16,6 +16,7 @@ export async function handleGetBugContent(tp: TpClient, id: string) {
   }
 
   const bugResult = {
+    iteration: bug.Iteration, teamIteration: bug.TeamIteration, assignments: bug.Assignments, roleEfforts: bug.RoleEfforts,
     name: bug.Name,
     id: bug.Id,
     description: '',

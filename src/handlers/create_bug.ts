@@ -20,6 +20,7 @@ export async function handleCreateBug(
     bugResponse = await tp.createBugOnly<TP.Bug>(params)
   } catch (error) {
     return {
+      isError: true,
       content: [{
         type: 'text' as const,
         text: `Failed to create bug "${params.title}": ${error instanceof Error ? error.message : String(error)}`,
@@ -29,6 +30,7 @@ export async function handleCreateBug(
 
   if (!bugResponse) {
     return {
+      isError: true,
       content: [{
         type: 'text' as const,
         text: `Failed to create bug "${params.title}"\n JSON: ${JSON.stringify(bugResponse, null, 2)}`

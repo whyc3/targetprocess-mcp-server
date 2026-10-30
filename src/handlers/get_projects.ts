@@ -21,6 +21,7 @@ export async function handleGetProjects(tp: TpClient) {
   }
 
   return {
+    structuredContent: { complete: !response.Next, returned: items.length },
     content: [{
       type: 'text' as const,
       text: JSON.stringify(items.map((p) => ({ id: p.Id, name: p.Name })))

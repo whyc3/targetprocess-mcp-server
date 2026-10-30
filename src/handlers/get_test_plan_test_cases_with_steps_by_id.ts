@@ -24,7 +24,8 @@ export async function handleGetTestPlanTestCasesWithStepsById(tp: TpClient, id: 
     }
   }
 
-  const testCasesData = await Promise.all(items.map(async (item) => {
+  const testCasesData = []
+  for (const item of items) {
     let description = ''
     if (item.Description) {
       try {
@@ -37,19 +38,21 @@ export async function handleGetTestPlanTestCasesWithStepsById(tp: TpClient, id: 
 
     const testCaseSteps = await tp.getTestCaseSteps<TP.TpResponse<TP.TestStep>>(String(item.Id))
 
-    return {
+    if (!testCaseSteps) return { isError: true, content: [{ type: 'text' as const, text: 'Failed to get test steps for test case id: ' + item.Id }] }
+    testCasesData.push({
       testCaseId: item.Id,
       testCaseName: item.Name,
       testCaseDescription: description,
       testPlanId: item.TestPlanId,
       testPlanName: item.TestPlanName,
-      testCaseSteps: testCaseSteps?.Items?.map((step) => ({
+      testCaseSteps: testCaseSteps.Items?.slice().sort((a, b) => a.RunOrder - b.RunOrder).map((step) => ({
+        id: step.Id,
         description: step.Description,
         result: step.Result,
         runOrder: step.RunOrder,
       })) || [],
-    }
-  }))
+    })
+  }
 
   return {
     content: [{ type: 'text' as const, text: JSON.stringify(testCasesData) }],

@@ -176,6 +176,7 @@ describe('handleGetTestCaseById', () => {
       description: 'Preconditions: cart has items',
       tags: [],
       testPlan: 'Checkout plan',
+      testPlans: [{ id: 111, name: 'Checkout plan' }],
       steps: [
         { description: 'Open cart', result: 'Cart opens', runOrder: 1 },
         { description: 'Submit payment', result: 'Order is created', runOrder: 2 },

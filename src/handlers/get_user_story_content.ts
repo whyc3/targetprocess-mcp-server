@@ -25,6 +25,7 @@ export async function handleGetUserStoryContent(tp: TpClient, id: string) {
   }
 
   const result = {
+    iteration: userStory.Iteration, teamIteration: userStory.TeamIteration, assignments: userStory.Assignments, roleEfforts: userStory.RoleEfforts,
     name: userStory.Name,
     id: userStory.Id,
     description: '',

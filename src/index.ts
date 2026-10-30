@@ -1,6 +1,12 @@
 #!/usr/bin/env node
+import { registerExtendedTools } from './extended_tools.js';
 
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { ReliableMcpServer } from "./reliable_server.js";
+import { validateConfiguration } from "./config.js";
+import { registerTestManagementTools } from "./test_management_tools.js";
+import { handleAddTestCases } from "./handlers/add_test_cases_to_test_plan.js";
+import { fileURLToPath } from "node:url";
+import { resolve } from "node:path";
 import { z } from "zod";
 import { JSDOM } from "jsdom";
 import { createRequire } from "module";
@@ -37,11 +43,9 @@ import { handleCreateEpic } from "./handlers/create_epic.js";
 import { handleGetTestPlanById } from "./handlers/get_test_plan_by_id.js";
 import { handleCreateNestedTestPlan } from "./handlers/create_nested_test_plan.js";
 import { handleMoveTestCasesToSubPlan } from "./handlers/move_test_cases_to_sub_plan.js";
-import { handleMoveTestCasesBetweenSiblingPlans } from "./handlers/move_test_cases_between_sibling_plans.js";
 import { handleBatchMoveTestCasesToSubPlan } from "./handlers/batch_move_test_cases_to_sub_plan.js";
 import { handleGetTestCaseTestPlans } from "./handlers/get_test_case_test_plans.js";
 import { handleUnlinkTestCasesFromTestPlan } from "./handlers/unlink_test_cases_from_test_plan.js";
-import { handleUnlinkChildTestPlanFromParent } from "./handlers/unlink_child_test_plan_from_parent.js";
 import { handleGetTestPlanTestCasesById } from "./handlers/get_test_plan_test_cases_by_id.js";
 import { handleGetTestPlanTestCasesWithStepsById } from "./handlers/get_test_plan_test_cases_with_steps_by_id.js";
 import { handleGetTestCaseById } from "./handlers/get_test_case_by_id.js";
@@ -81,10 +85,13 @@ import { handleGetRelationTypes } from "./handlers/get_relation_types.js";
 import { handleGetVersion } from "./handlers/get_version.js";
 import { handleUpdateCardTags } from "./handlers/update_card_tags.js";
 
-const server = new McpServer(
+const require = createRequire(import.meta.url);
+const { version } = require("../package.json");
+
+export const server = new ReliableMcpServer(
   {
     name: "tp",
-    version: "1.0.0"
+    version
   },
   {
     capabilities: {
@@ -243,6 +250,7 @@ server.registerTool(
     title: 'Search TP cards by keyword with filters',
     description: 'Search Targetprocess cards by name and/or description with pagination, sorting, and filters for state, owner, project, release, and tags.',
     inputSchema: {
+      teamId: z.string().regex(/^[1-9]\d*$/).optional(), iterationId: z.string().regex(/^[1-9]\d*$/).optional(), teamIterationId: z.string().regex(/^[1-9]\d*$/).optional(), testerId: z.string().regex(/^[1-9]\d*$/).optional(), roleId: z.string().regex(/^[1-9]\d*$/).optional(),
       keyword: z.string()
         .describe('Keyword or phrase to search for'),
       entityType: z.enum(["UserStories", "Bugs", "Features", "Generals"])
@@ -1302,6 +1310,7 @@ server.registerTool(
     }
 
     return {
+      isError: (testPlanResponse as TP.TestPlan & { verified?: boolean }).verified === false,
       content: [{
         type: 'text',
         text: JSON.stringify(testPlanResponse)
@@ -1333,22 +1342,6 @@ server.registerTool(
 )
 
 server.registerTool(
-  'unlink_child_test_plan_from_parent',
-  {
-    title: 'Unlink a child test plan from its parent',
-    description: 'Remove only one direct parent-to-child Test Plan association. Both plans and all test cases remain. Defaults to a dry run; execution verifies that the link is gone and the child plan and its direct cases remain.',
-    inputSchema: {
-      parentTestPlanId: z.string().regex(/^\d{5,9}$/).describe('Parent test plan ID whose direct child link will be removed'),
-      childTestPlanId: z.string().regex(/^\d{5,9}$/).describe('Existing direct child test plan ID to detach'),
-      dryRun: z.boolean().default(true).optional()
-        .describe('Validate the link without changing Targetprocess. Defaults to true.'),
-    },
-  },
-  async ({ parentTestPlanId, childTestPlanId, dryRun }) =>
-    handleUnlinkChildTestPlanFromParent(tp, { parentTestPlanId, childTestPlanId, dryRun }),
-)
-
-server.registerTool(
   'move_test_cases_to_sub_plan',
   {
     title: 'Move test cases into a sub plan',
@@ -1374,25 +1367,6 @@ server.registerTool(
   },
   async ({ sourceTestPlanId, destinationTestPlanId, testCaseIds, dryRun }) =>
     handleMoveTestCasesToSubPlan(tp, { sourceTestPlanId, destinationTestPlanId, testCaseIds, dryRun }),
-)
-
-server.registerTool(
-  'move_test_cases_between_sibling_plans',
-  {
-    title: 'Move test cases between sibling plans',
-    description: 'Move explicitly selected direct case memberships between two existing direct children of the same parent plan. Does not delete or copy test cases. Defaults to a dry run; execution unlinks and verifies each source link before assigning and verifying its destination, and attempts a verified source restore on assignment failure. Move cases before detaching either sibling from the parent.',
-    inputSchema: {
-      parentTestPlanId: z.string().regex(/^\d{5,9}$/).describe('Shared direct parent test plan ID'),
-      sourceTestPlanId: z.string().regex(/^\d{5,9}$/).describe('Sibling plan currently containing the selected direct cases'),
-      destinationTestPlanId: z.string().regex(/^\d{5,9}$/).describe('Destination sibling plan'),
-      testCaseIds: z.array(z.string().regex(/^\d{5,9}$/)).min(1).max(100)
-        .describe('Explicit test case IDs to move; at most 100 per call'),
-      dryRun: z.boolean().default(true).optional()
-        .describe('Validate without changing Targetprocess. Defaults to true.'),
-    },
-  },
-  async ({ parentTestPlanId, sourceTestPlanId, destinationTestPlanId, testCaseIds, dryRun }) =>
-    handleMoveTestCasesBetweenSiblingPlans(tp, { parentTestPlanId, sourceTestPlanId, destinationTestPlanId, testCaseIds, dryRun }),
 )
 
 server.registerTool(
@@ -2001,7 +1975,7 @@ server.registerTool(
             - name: concise action-oriented title
             - description: HTML <div> with Preconditions and Test Type sections only (no steps here)
             - steps: ordered array of { description: "<step action>", result: "<expected result>" }
-        4) Call "create_test_plan" tool passing: resourceId (the card id), resourceType, testPlanTitle (use the card name/title), NOTE: IF test plan already exists - skip this step and proceed to step 5.
+        4) Call "create_test_plan" tool passing: resourceId (the card id), resourceType, title (use the card name/title), NOTE: IF test plan already exists - skip this step and proceed to step 5.
         5) Call "add_test_cases_to_test_plan" tool passing: testPlanId (the test plan id), and the testCases array with name, description, and steps`,
     inputSchema: {
       resourceId: z.string()
@@ -2068,7 +2042,7 @@ server.registerTool(
         .max(9)
         .describe('Test plan ID to add test cases to (e.g. 145789)'),
       testCases: z.array(z.object({
-        name: z.string()
+        name: z.string().trim().min(1)
           .describe('Test case title (concise, action-oriented)'),
         description: z.string()
           .describe('Test case context formatted as HTML — include Preconditions and Test Type sections, but NOT test steps (those go in the steps field)'),
@@ -2081,42 +2055,11 @@ server.registerTool(
           .min(1)
           .describe('Ordered list of test steps with their expected results'),
       }))
-        .min(1)
+        .min(1).max(100)
         .describe('Array of test cases to create in the test plan'),
     },
   },
-  async ({ testPlanId, testCases }) => {
-    const created: { id: number; name: string; stepsAdded: number; stepsFailed: number }[] = []
-    const failed: string[] = []
-
-    for (const tc of testCases) {
-      const testCase = await tp.createTestCase<TP.TestCase>(tc.name, tc.description, String(testPlanId))
-      if (!testCase) {
-        failed.push(tc.name)
-        continue
-      }
-
-      let stepsAdded = 0
-      let stepsFailed = 0
-      for (const step of tc.steps) {
-        const stepResult = await tp.addTestStep<TP.TestStep>(String(testCase.Id), step)
-        if (stepResult) {
-          stepsAdded++
-        } else {
-          stepsFailed++
-        }
-      }
-
-      created.push({ id: testCase.Id, name: testCase.Name, stepsAdded, stepsFailed })
-    }
-
-    return {
-      content: [{
-        type: 'text',
-        text: JSON.stringify({ created, failed })
-      }]
-    }
-  }
+  async ({ testPlanId, testCases }) => handleAddTestCases(tp, testPlanId, testCases)
 )
 
 server.registerTool(
@@ -2145,17 +2088,19 @@ server.registerTool(
   'get_bug_workflows',
   {
     title: 'Get bug workflows',
-    description: 'Get all Targetprocess bug workflows',
+    description: 'Get bug workflows scoped to an explicit project/process; otherwise uses configured defaults.',
+    inputSchema: { projectId: z.string().regex(/^[1-9]\d*$/).optional(), processId: z.string().regex(/^[1-9]\d*$/).optional() },
   },
-  async () => handleGetBugWorkflows(tp))
+  async p => handleGetBugWorkflows(tp, p))
 
 server.registerTool(
   'get_user_story_workflows',
   {
     title: 'Get User Story workflows',
-    description: 'Get all Targetprocess user story workflows, with sub-states',
+    description: 'Get project/process-specific User Story workflows with sub-states.',
+    inputSchema: { projectId: z.string().regex(/^[1-9]\d*$/).optional(), processId: z.string().regex(/^[1-9]\d*$/).optional() },
   },
-  async () => handleGetUserStoryWorkflows(tp)
+  async p => handleGetUserStoryWorkflows(tp, p)
 )
 
 server.registerTool(
@@ -2434,9 +2379,6 @@ server.registerTool(
   async ({ take }) => handleGetMyTimeLogs(tp, take)
 )
 
-const require = createRequire(import.meta.url);
-const { version } = require("../package.json");
-
 server.registerTool(
   'get_version',
   {
@@ -2447,13 +2389,17 @@ server.registerTool(
   async () => handleGetVersion(version)
 )
 
+registerTestManagementTools(server, tp);
+registerExtendedTools(server, tp);
+
 async function main() {
+  validateConfiguration();
   const transport = new StdioServerTransport();
   await server.connect(transport);
   console.error("Targetprocess MCP Server running on stdio");
 }
 
-main().catch((error) => {
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) main().catch((error) => {
   console.error("Fatal error in main():", error);
   process.exit(1);
 });

@@ -13,8 +13,10 @@ import {
   RoleAssignment,
   TestPlan,
   TestCase,
+  TestStep,
 } from "./types.js";
 import { config } from "./config.js";
+import { TpHttp, TpApiError, errorDetails, type Query } from "./http.js";
 import { applyTagMutation, hasTagMutation, type TagMutationParams, type TaggableEntityType } from "./tags.js";
 
 type TestPlanNode = {
@@ -98,163 +100,110 @@ type BulkTagUpdateFailure = {
 
 export class TpClient {
 
-  private baseUrl: string = config.tp.url
-  private token: string = config.tp.token
-  private headers: HeadersInit
   private readonly v1 = '/api/v1'
   private readonly v2 = '/api/v2'
+  private readonly http = new TpHttp()
 
-  constructor() {
-    this.headers = {
-      "Content-Type": "application/json",
-      Accept: "application/json",
-    }
+  async api<T>(method: 'GET' | 'POST' | 'DELETE', path: string[], data?: unknown, query: Query = {}): Promise<T> {
+    return this.http.request<T>(method, this.v1 + '/' + path.map(encodeURIComponent).join('/'), { format: 'json', ...query }, data)
   }
 
-  private params(params: TpClientParameters): string {
-    let _url = this.baseUrl + (params.apiVersion || this.v1)
-    for (const segment of params.pathParam) {
-      _url += `/${segment}`
-    }
-
-    let _urlParams = []
-    for (const [key, value] of Object.entries(params.param)) {
-      _urlParams.push(`${key}=${encodeURIComponent(value)}`)
-    }
-    return _url + "/?" + _urlParams.join("&")
+  async apiPage<T>(next: string): Promise<T> {
+    return this.http.request<T>('GET', next)
   }
 
-  // Strips the access_token value out of a URL before it's logged, so the
-  // live TP credential never ends up in stderr/log files.
-  private redact(url: string): string {
-    return url
-      .replace(this.token, "***")
-      .replace(encodeURIComponent(this.token), "***")
+  async apiAll<T>(path: string[], query: Query = {}): Promise<T[]> {
+    const items: T[] = [], seen = new Set<string>()
+    let page = await this.api<TpResponse<T>>('GET', path, undefined, { take: 100, ...query })
+    for (let count = 0; count < 10000; count++) {
+      if (!page || !Array.isArray(page.Items)) throw new Error('Invalid collection response for ' + path.join('/'))
+      items.push(...page.Items)
+      if (!page.Next) return items
+      if (!page.Items.length || seen.has(page.Next)) throw new Error('Pagination failed to advance; collection is incomplete')
+      seen.add(page.Next)
+      page = await this.apiPage<TpResponse<T>>(page.Next)
+    }
+    throw new Error('Pagination limit reached; collection is incomplete')
   }
 
-  // @ts-ignore
+  async validateCardState(resource: string, stateId: string, cardId?: string, projectId?: string) {
+    if (!/^[1-9]\d*$/.test(stateId)) throw new Error('Use a positive integer state ID')
+    let currentWorkflow: number | undefined
+    if (cardId) {
+      const card = await this.api<{ Id?: number; Project?: { Id: number }; EntityState?: { Workflow?: { Id: number } } }>('GET', [resource, cardId], undefined, { include: '[Id,Project,EntityState[Workflow]]' })
+      if (String(card.Id) !== cardId) throw new Error('Target card identity mismatch')
+      if (!card.Project?.Id) throw new Error('Target card project is unavailable')
+      currentWorkflow = card.EntityState?.Workflow?.Id
+      if (!projectId || projectId === String(card.Project.Id)) projectId = String(card.Project.Id)
+      else currentWorkflow = undefined
+    }
+    const processId = await this.processId({ projectId: projectId || config.tp.projectId })
+    const type = ({ Bugs: 'Bug', UserStories: 'UserStory', Features: 'Feature', Tasks: 'Task' } as Record<string, string>)[resource]
+    if (!type) throw new Error('Unsupported workflow entity type')
+    const allowed = await this.apiAll<{ Id: number; Workflow?: { Id: number } }>(['EntityStates'], { where: "EntityType.Name eq '" + type + "' and Workflow.Process.Id eq " + processId, include: '[Id,Workflow[Id,ParentWorkflow]]' })
+    const selected = allowed.find(state => String(state.Id) === stateId)
+    if (!selected || (currentWorkflow && selected.Workflow?.Id !== currentWorkflow)) throw new Error('State does not belong to the target card workflow; no update was attempted')
+    return selected
+  }
+
+  private async processId(scope: { projectId?: string; processId?: string } = {}): Promise<string> {
+    if (scope.projectId) {
+      const project = await this.api<{ Process?: { Id: number } }>('GET', ['Projects', scope.projectId])
+      if (!project?.Process?.Id) throw new Error('Project process is unavailable')
+      if (scope.processId && scope.processId !== String(project.Process.Id)) throw new Error('Process does not belong to project')
+      return String(project.Process.Id)
+    }
+    if (scope.processId) return scope.processId
+    if (config.tp.processId) return config.tp.processId
+    if (config.tp.projectId) {
+      const project = await this.api<{ Process?: { Id: number } }>('GET', ['Projects', config.tp.projectId])
+      if (project?.Process?.Id) return String(project.Process.Id)
+    }
+    throw new Error('Set TP_PROJECT_ID or TP_PROCESS_ID to resolve the project workflow')
+  }
+
+  // @ts-ignore -- retained for existing consumers
   private async getAll<T>(params: TpClientParameters): Promise<T[]> {
     return (await this.getAllOrNull<T>(params)) || []
   }
 
   private async getAllOrNull<T>(params: TpClientParameters): Promise<T[] | null> {
-    const allItems: T[] = []
-    let skip = 0
-    const take = 100
-
-    while (true) {
-      const page = await this.get<TpResponse<T>>({
-        ...params,
-        param: {
-          ...params.param,
-          take,
-          skip,
-        },
-      })
+    const items: T[] = [], seen = new Set<string>()
+    let page = await this.get<TpResponse<T>>({ ...params, param: { ...params.param, take: 100, skip: 0 } })
+    for (let count = 0; count < 10000; count++) {
       if (!page) return null
-      if (!page?.Items?.length) break
-      allItems.push(...page.Items)
-      if (!page.Next) break
-      skip += take
+      if (!Array.isArray(page.Items)) throw new Error('Invalid collection response')
+      items.push(...page.Items)
+      if (!page.Next) return items
+      if (!page.Items.length || seen.has(page.Next)) throw new Error('Invalid pagination response; collection is incomplete')
+      seen.add(page.Next)
+      page = await this.apiPage<TpResponse<T>>(page.Next)
     }
-
-    return allItems
+    throw new Error('Pagination limit reached')
   }
 
-  private async get<T>(params: TpClientParameters): Promise<T | null> {
-    params.param["access_token"] = this.token
-    let _url = this.params(params)
-    console.error(JSON.stringify({ "TP_GET_URL": this.redact(_url) }))
-    try {
-      const response = await fetch(_url, {
-        method: "GET",
-        headers: this.headers
-      });
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-
-      return (await response.json()) as T
-    } catch (error) {
-      console.error("Error making TP request:", error);
-      console.error("Request URL:", this.redact(_url));
-      return null;
-    }
+  private get<T>(params: TpClientParameters): Promise<T> {
+    return this.http.request<T>('GET', (params.apiVersion || this.v1) + '/' + params.pathParam.map(encodeURIComponent).join('/'), params.param)
   }
 
-  private async post<T, U>(params: TpClientParameters, data: T, options: { throwOnError?: boolean } = {}): Promise<U | null> {
-    params.param["access_token"] = this.token
-    let _url = this.params(params)
-    console.error(JSON.stringify({ "TP_POST_URL": this.redact(_url) }))
-    console.error(JSON.stringify({ "TP_POST_BODY": data }))
-    try {
-      const response = await fetch(_url, {
-        method: "POST",
-        headers: this.headers,
-        body: JSON.stringify(data),
-      });
-      const responseBody = await response.text()
-      if (!response.ok) {
-        const message = `Targetprocess API error (HTTP ${response.status}): ${responseBody || response.statusText}`
-        if (options.throwOnError) throw new Error(message)
-        throw new Error(message)
-      }
-      return (responseBody ? JSON.parse(responseBody) : null) as U
-    } catch (error) {
-      console.error("Error making TP request:", error);
-      if (options.throwOnError) throw error
-      return null;
-    }
+  private post<T, U>(params: TpClientParameters, data: T, _options: { throwOnError?: boolean } = {}): Promise<U> {
+    return this.http.request<U>('POST', (params.apiVersion || this.v1) + '/' + params.pathParam.map(encodeURIComponent).join('/'), params.param, data)
   }
 
-  // Like post(), but on failure returns the HTTP status and raw response body
-  // instead of null, so callers can surface TP's error detail to the user.
+  // Compensation paths retain explicit partial-result reporting.
+  private async tryPost<T, U>(params: TpClientParameters, data: T): Promise<U | null> {
+    try { return await this.post<T, U>(params, data) } catch { return null }
+  }
+
   private async postRaw<T, U>(params: TpClientParameters, data: T): Promise<TpResult<U>> {
-    params.param["access_token"] = this.token
-    let _url = this.params(params)
-    console.error(JSON.stringify({ "TP_POST_URL": this.redact(_url) }))
-    console.error(JSON.stringify({ "TP_POST_BODY": data }))
-    try {
-      const response = await fetch(_url, {
-        method: "POST",
-        headers: this.headers,
-        body: JSON.stringify(data),
-      });
-      const text = await response.text()
-      if (!response.ok) {
-        console.error(JSON.stringify({ "TP_POST_ERROR_STATUS": response.status, "TP_POST_ERROR_BODY": text }))
-        return { ok: false, status: response.status, body: text }
-      }
-      return { ok: true, data: (text ? JSON.parse(text) : null) as U }
-    } catch (error) {
-      console.error("Error making TP request:", error);
-      return { ok: false, status: 0, body: String(error) }
-    }
+    try { return { ok: true, data: await this.post<T, U>(params, data) } }
+    catch (error) { return { ok: false, status: error instanceof TpApiError ? error.status : 0, body: error instanceof TpApiError ? error.body : JSON.stringify(errorDetails(error)) } }
   }
 
-  // DELETE request that, like postRaw(), surfaces the HTTP status and raw
-  // response body on failure so callers can report TP's error detail.
   private async del<U>(params: TpClientParameters): Promise<TpResult<U>> {
-    params.param["access_token"] = this.token
-    let _url = this.params(params)
-    console.error(JSON.stringify({ "TP_DELETE_URL": this.redact(_url) }))
-    try {
-      const response = await fetch(_url, {
-        method: "DELETE",
-        headers: this.headers,
-      });
-      const text = await response.text()
-      if (!response.ok) {
-        console.error(JSON.stringify({ "TP_DELETE_ERROR_STATUS": response.status, "TP_DELETE_ERROR_BODY": text }))
-        return { ok: false, status: response.status, body: text }
-      }
-      return { ok: true, data: (text ? JSON.parse(text) : null) as U }
-    } catch (error) {
-      console.error("Error making TP request:", error);
-      return { ok: false, status: 0, body: String(error) }
-    }
+    try { return { ok: true, data: await this.http.request<U>('DELETE', (params.apiVersion || this.v1) + '/' + params.pathParam.map(encodeURIComponent).join('/'), params.param) } }
+    catch (error) { return { ok: false, status: error instanceof TpApiError ? error.status : 0, body: error instanceof TpApiError ? error.body : JSON.stringify(errorDetails(error)) } }
   }
-
   private escapeWhereValue(value: string): string {
     return value.replace(/\\/g, "\\\\").replace(/'/g, "\\'")
   }
@@ -306,6 +255,12 @@ export class TpClient {
       clauses.push(`Tags contains '${this.escapeWhereValue(tag)}'`)
     }
 
+    for (const [value, field] of [[filters?.iterationId, 'Iteration.Id'], [filters?.teamIterationId, 'TeamIteration.Id'], [filters?.teamId, 'AssignedTeams.Team.Id'], [filters?.testerId, 'Assignments.GeneralUser.Id'], [filters?.roleId, 'Assignments.Role.Id']]) {
+      if (value) {
+        if (!/^[1-9]\d*$/.test(value)) throw new Error('Use positive integer filter IDs')
+        clauses.push(field + ' eq ' + value)
+      }
+    }
     return clauses.join(" and ")
   }
 
@@ -449,6 +404,7 @@ export class TpClient {
     removeTags,
     teamIterationId
   }: { id: string, title?: string, description?: string, projectId?: string, teamId?: string, teamAssignmentId?: string, entityStateId?: string, featureId?: string, tags?: string, addTags?: string, removeTags?: string, teamIterationId?: string }): Promise<T> {
+    if (entityStateId) await this.validateCardState('UserStories', entityStateId, id, projectId)
     const userStory: Record<string, any> = { "Id": id }
 
     if (title) userStory["Name"] = title
@@ -477,6 +433,7 @@ export class TpClient {
   }
 
   async updateBug<T>({ id, title, bugContent, origin, releaseId, projectId, teamId, entityStateId, tags, addTags, removeTags, teamIterationId }: { id: string, title?: string, bugContent?: string, origin?: string, releaseId?: string, projectId?: string, teamId?: string, entityStateId?: string, tags?: string, addTags?: string, removeTags?: string, teamIterationId?: string }): Promise<T> {
+    if (entityStateId) await this.validateCardState('Bugs', entityStateId, id, projectId)
     const bug: Record<string, any> = { "Id": id }
 
     if (title) bug["Name"] = title
@@ -506,6 +463,7 @@ export class TpClient {
   }
 
   async createBugOnly<T>({ title, bugContent, origin = "Manual QA", releaseId, projectId, teamId, entityStateId, tags, teamIterationId }: BugInputSchema): Promise<T> {
+    if (entityStateId) await this.validateCardState('Bugs', entityStateId, undefined, projectId)
     const bug: Record<string, any> = {
       "Name": title,
       "Project": {
@@ -649,6 +607,7 @@ export class TpClient {
     removeTags,
     teamIterationId
   }: { id: string, title?: string, description?: string, epicId?: string, releaseId?: string, projectId?: string, teamId?: string, entityStateId?: string, tags?: string, addTags?: string, removeTags?: string, teamIterationId?: string }): Promise<T> {
+    if (entityStateId) await this.validateCardState('Features', entityStateId, id, projectId)
     const feature: Record<string, any> = { "Id": id }
 
     if (title) feature["Name"] = title
@@ -754,22 +713,19 @@ export class TpClient {
     }, bug) as T
   }
 
-  async createTestCase<T>(name: string, description: string, testPlanId: string): Promise<T> {
-    const testCase = {
-      "Name": name,
-      "Project": { "Id": config.tp.projectId },
-      "Description": description,
-      "TestPlans": [{
-        "Id": testPlanId
-      }],
-    }
-
-    return this.post<any, T>({
-      pathParam: ["testCases"],
-      param: { "format": "json" },
-    }, testCase) as T
+  async createTestCase<T>(name: string, description: string, testPlanId?: string, options: { projectId?: string; tags?: string } = {}): Promise<T> {
+    const plan = testPlanId ? await this.getTestPlan<TestPlan>(testPlanId) : undefined
+    if (testPlanId && !plan?.Project?.Id) throw new Error('Cannot resolve the destination test plan project')
+    const planProjectId = plan?.Project?.Id === undefined ? undefined : String(plan.Project.Id)
+    if (planProjectId && options.projectId && planProjectId !== options.projectId) throw new Error('The requested project differs from the destination test plan project')
+    const projectId = planProjectId || options.projectId || config.tp.projectId
+    if (!projectId) throw new Error('A projectId is required for a standalone test case')
+    return this.post<unknown, T>({ pathParam: ['testCases'], param: { format: 'json' } }, {
+      Name: name, Description: description, Project: { Id: projectId },
+      ...(testPlanId ? { TestPlans: { Items: [{ Id: testPlanId }] } } : {}),
+      ...(options.tags === undefined ? {} : { Tags: options.tags }),
+    })
   }
-
   async deleteTestCase<T>(testCaseId: string): Promise<TpResult<T>> {
     return this.del<T>({
       pathParam: ["testCases", testCaseId],
@@ -777,30 +733,38 @@ export class TpClient {
     })
   }
 
-  async createTestPlan<T>(title: string, resourceId: string, resourceType: 'UserStory' | 'Bug' | 'Feature' = 'UserStory', options?: { description?: string; startDate?: string; endDate?: string; parentTestPlanId?: string }): Promise<T> {
+  async createTestPlan<T>(title: string, resourceId: string, resourceType: 'UserStory' | 'Bug' | 'Feature' = 'UserStory', options?: { description?: string; startDate?: string; endDate?: string; parentTestPlanId?: string; projectId?: string }): Promise<T> {
+    const source = await this.api<{ Id?: number; Name?: string; ResourceType?: string; Project?: { Id: number } }>('GET', ['Generals', resourceId])
+    if (source?.Id !== undefined && String(source.Id) !== resourceId) throw new Error('Linked card identity mismatch')
+    if (source.ResourceType && source.ResourceType !== resourceType) throw new Error('Linked card type mismatch')
+    const projectId = source?.Project?.Id ? String(source.Project.Id) : options?.projectId || config.tp.projectId
+    if (!projectId) throw new Error('Cannot resolve the linked card project')
+    if (options?.projectId && options.projectId !== projectId) throw new Error('Project differs from the linked card project')
+    if (options?.parentTestPlanId) {
+      const parent = await this.getTestPlan<TestPlan>(options.parentTestPlanId)
+      if (String(parent.Project?.Id) !== projectId) throw new Error('Parent test plan belongs to another project')
+    }
     const testPlan: Record<string, any> = {
       "Name": `Test Plan: ${title}`,
       "Project": {
-        "Id": config.tp.projectId
+        "Id": projectId
       },
       "LinkedGeneral": {
         "ResourceType": "General",
         "Id": resourceId,
-        "Name": title,
       },
       "LinkedAssignable": {
         "ResourceType": "Assignable",
         "Id": resourceId,
-        "Name": title,
       },
     }
 
     if (resourceType === 'UserStory') {
-      testPlan["LinkedUserStory"] = { "ResourceType": "UserStory", "Id": resourceId, "Name": title }
+      testPlan["LinkedUserStory"] = { "ResourceType": "UserStory", "Id": resourceId }
     } else if (resourceType === 'Bug') {
-      testPlan["LinkedBug"] = { "ResourceType": "Bug", "Id": resourceId, "Name": title }
+      testPlan["LinkedBug"] = { "ResourceType": "Bug", "Id": resourceId }
     } else if (resourceType === 'Feature') {
-      testPlan["LinkedFeature"] = { "ResourceType": "Feature", "Id": resourceId, "Name": title }
+      testPlan["LinkedFeature"] = { "ResourceType": "Feature", "Id": resourceId }
     }
 
     if (options?.description) testPlan["Description"] = options.description
@@ -808,10 +772,20 @@ export class TpClient {
     if (options?.endDate) testPlan["EndDate"] = options.endDate
     if (options?.parentTestPlanId) testPlan["ParentTestPlans"] = [{ "Id": options.parentTestPlanId }]
 
-    return this.post<any, T>({
+    const created = await this.post<any, { Id: number }>({
       pathParam: ["testPlans"],
       param: { "format": "json" },
-    }, testPlan) as T
+    }, testPlan)
+    if (!created?.Id) throw new Error('Creation returned no ID; inspect existing plans before retrying')
+    try {
+      const plan = await this.api<{ Id: number; Name: string; LinkedGeneral?: { Id: number } }>('GET', ['TestPlans', String(created.Id)])
+      const linked = await this.api<{ Id: number; Name: string }>('GET', ['Generals', resourceId])
+      if (plan.Id !== created.Id || plan.Name !== testPlan.Name || String(plan.LinkedGeneral?.Id) !== resourceId) throw new Error('Created plan or link verification failed')
+      if (String(linked.Id) !== resourceId || linked.Name !== source.Name) throw new Error('Linked card identity/title changed')
+      return { ...created, ...plan, verified: true, linkedCard: linked } as T
+    } catch (error) {
+      return { ...created, status: 'partial', verified: false, verificationError: errorDetails(error), recovery: 'Read this plan ID and linked card before retrying; do not create another plan.' } as T
+    }
   }
 
   async createNestedTestPlan<T>({ title, parentTestPlanId, description }: { title: string, parentTestPlanId: string, description?: string }): Promise<T> {
@@ -840,10 +814,8 @@ export class TpClient {
   }
 
   async getUsers<T>(): Promise<T> {
-    return this.get<T>({
-      pathParam: ["Users"],
-      param: { "format": "json" },
-    }) as T
+    const Items = await this.apiAll<unknown>(['Users'])
+    return { Items, Next: '', Complete: true, Count: Items.length } as T
   }
 
   async addCommentWithUser<T>(userStoryId: string, comment: string, user: LoggedUser): Promise<T> {
@@ -882,11 +854,12 @@ export class TpClient {
     }, commentData) as T
   }
 
-  async addTestStep<T>(testCaseId: string, testStep: { description: string, result: string }): Promise<T> {
+  async addTestStep<T>(testCaseId: string, testStep: { description: string, result: string, runOrder?: number }): Promise<T> {
     const testStepData = {
       "Description": testStep.description,
       "Result": testStep.result,
       "TestCase": { "Id": testCaseId },
+      ...(testStep.runOrder === undefined ? {} : { RunOrder: testStep.runOrder }),
     }
 
     return this.post<any, T>({
@@ -946,6 +919,7 @@ export class TpClient {
       "take": take,
       "skip": skip,
       "where": this.buildSearchWhereClause({ field, keyword, filters }),
+      "include": entityType === "Generals" ? "[Id,Name,Description,EntityType,Owner,Project,Tags,CreateDate,ModifyDate]" : "[Id,Name,Description,EntityType,EntityState,Owner,Project,Tags,CreateDate,ModifyDate,Assignments[Id,Role,GeneralUser],RoleEfforts,AssignedTeams,Iteration[Id,Name,StartDate,EndDate],TeamIteration[Id,Name,StartDate,EndDate,Team[Id,Name]]]",
     }
 
     if (orderBy) {
@@ -1405,7 +1379,7 @@ export class TpClient {
         return result
       }
 
-      const afterUnlink = await this.getTestCasePlanIds(testCaseId)
+      const afterUnlink = await this.readCasePlanIdsSafely(testCaseId)
       if (!afterUnlink || afterUnlink.has(sourceTestPlanId)) {
         if (afterUnlink?.has(sourceTestPlanId)) {
           result.retainedInSourceTestCaseIds.push(testCaseId)
@@ -1420,14 +1394,14 @@ export class TpClient {
         return result
       }
 
-      const assigned = await this.post<any, unknown>({
+      const assigned = await this.tryPost<any, unknown>({
         pathParam: ["testCases", testCaseId],
         param: { "format": "json" },
       }, {
         "TestPlans": { "Items": [{ "Id": destinationTestPlanId }] },
       })
 
-      const planIds = await this.getTestCasePlanIds(testCaseId)
+      const planIds = await this.readCasePlanIdsSafely(testCaseId)
       if (planIds?.has(destinationTestPlanId) && !planIds.has(sourceTestPlanId)) {
         result.movedTestCaseIds.push(testCaseId)
         continue
@@ -1459,13 +1433,13 @@ export class TpClient {
   }
 
   private async restoreTestCaseToPlan(testCaseId: string, testPlanId: string): Promise<'restored' | 'unassigned' | 'unverified'> {
-    await this.post<any, unknown>({
+    await this.tryPost<any, unknown>({
       pathParam: ['testCases', testCaseId],
       param: { format: 'json' },
     }, {
       TestPlans: { Items: [{ Id: testPlanId }] },
     })
-    const planIds = await this.getTestCasePlanIds(testCaseId)
+    const planIds = await this.readCasePlanIdsSafely(testCaseId)
     if (!planIds) return 'unverified'
     return planIds.has(testPlanId) ? 'restored' : 'unassigned'
   }
@@ -1705,10 +1679,7 @@ export class TpClient {
   }
 
   async getTestCaseSteps<T>(testCaseId: string): Promise<T> {
-    return this.get<T>({
-      pathParam: ["testCases", testCaseId, "teststeps"],
-      param: { "format": "json" },
-    }) as T
+    return { Next: '', Items: await this.apiAll<TestStep>(['testCases', testCaseId, 'teststeps'], { orderby: 'RunOrder' }) } as T
   }
 
   async updateTestCase<T>({ id, name, description, tags, addTags, removeTags }: { id: string, name?: string, description?: string, tags?: string, addTags?: string, removeTags?: string }): Promise<T> {
@@ -1767,10 +1738,8 @@ export class TpClient {
   }
 
   async getProjects<T>(): Promise<T> {
-    return this.get<T>({
-      pathParam: ["Projects"],
-      param: { "format": "json" },
-    }) as T
+    const Items = await this.apiAll<unknown>(['Projects'])
+    return { Items, Next: '', Complete: true, Count: Items.length } as T
   }
 
   async getProcessWorkflows<T>({ processId }: { processId?: string }): Promise<T> {
@@ -1797,10 +1766,8 @@ export class TpClient {
   }
 
   async getProcesses<T>(): Promise<T> {
-    return this.get<T>({
-      pathParam: ["Processes"],
-      param: { "format": "json" },
-    }) as T
+    const Items = await this.apiAll<unknown>(['Processes'])
+    return { Items, Next: '', Complete: true, Count: Items.length } as T
   }
 
   async getTeamAssignments<T>(): Promise<T> {
@@ -1817,40 +1784,40 @@ export class TpClient {
     }) as T
   }
 
-  async getUserStoryWorkflows<T>(): Promise<T> {
+  async getUserStoryWorkflows<T>(scope: { projectId?: string; processId?: string } = {}): Promise<T> {
     return this.get<T>({
       pathParam: ["workflow"],
       param: {
         "format": "json",
         "select": `{Id,Name,Process,EntityType,EntityStates.Select({Id,Name}) as EntityStates}`,
-        "where": `(process.id=${config.tp.processId} and entityType.name="userStory" and parentWorkflow=null)`,
-        "take": "1",
-      },
-      apiVersion: this.v2
-    }) as T
-  }
-
-  async getUserStoryWorkflowsWithSubStates<T>(): Promise<T> {
-    return this.get<T>({
-      pathParam: ["EntityState"],
-      param: {
-        "format": "json",
-        "select": `{id,name,isInitial,isFinal,isDefaultFinal,isPlanned,workflow:{workflow.id,process:{workflow.process.id}},entityType:{entityType.name},subEntityStates:subEntityStates.Select({id,name,entityType:{entityType.name},isInitial,isFinal,isDefaultFinal,isPlanned})}`,
-        "where": `(parentEntityState==null and workflow.process.id in [${config.tp.processId}])`,
+        "where": `(process.id=${await this.processId(scope)} and entityType.name="userStory" and parentWorkflow=null)`,
         "take": "1000",
       },
       apiVersion: this.v2
     }) as T
   }
 
-  async getBugWorkflows<T>(): Promise<T> {
+  async getUserStoryWorkflowsWithSubStates<T>(scope: { projectId?: string; processId?: string } = {}): Promise<T> {
+    return this.get<T>({
+      pathParam: ["EntityState"],
+      param: {
+        "format": "json",
+        "select": `{id,name,isInitial,isFinal,isDefaultFinal,isPlanned,workflow:{workflow.id,process:{workflow.process.id}},entityType:{entityType.name},subEntityStates:subEntityStates.Select({id,name,entityType:{entityType.name},isInitial,isFinal,isDefaultFinal,isPlanned})}`,
+        "where": `(parentEntityState==null and workflow.process.id in [${await this.processId(scope)}])`,
+        "take": "1000",
+      },
+      apiVersion: this.v2
+    }) as T
+  }
+
+  async getBugWorkflows<T>(scope: { projectId?: string; processId?: string } = {}): Promise<T> {
     return this.get<T>({
       pathParam: ["workflow"],
       param: {
         "format": "json",
         "select": `{Id,Name,Process,EntityType,EntityStates.Select({Id,Name}) as EntityStates}`,
-        "where": `(process.id=${config.tp.processId} and entityType.name="bug" and parentWorkflow=null)`,
-        "take": "1",
+        "where": `(process.id=${await this.processId(scope)} and entityType.name="bug" and parentWorkflow=null)`,
+        "take": "1000",
       },
       apiVersion: this.v2
     }) as T
@@ -1938,6 +1905,7 @@ export class TpClient {
   }
 
   async updateTask<T>({ id, title, description, entityStateId }: { id: string, title?: string, description?: string, entityStateId?: string }): Promise<T> {
+    if (entityStateId) await this.validateCardState('Tasks', entityStateId, id)
     const task: Record<string, any> = { "Id": id }
 
     if (title !== undefined) task["Name"] = title
@@ -2120,37 +2088,16 @@ export class TpClient {
   }
 
 
-  async addAttachedFile(generalId: string, source: { filePath: string } | { fileContent: string; fileName: string }): Promise<string | null> {
-    let blob: Blob
-    let fileName: string
+  private async readCasePlanIdsSafely(id: string): Promise<Set<string> | null> {
+    try { return await this.getTestCasePlanIds(id) } catch { return null }
+  }
 
-    if ("filePath" in source) {
-      blob = new Blob([readFileSync(source.filePath)])
-      fileName = basename(source.filePath)
-    } else {
-      blob = new Blob([Buffer.from(source.fileContent, "base64")])
-      fileName = source.fileName
-    }
-
-    const formData = new FormData()
-    formData.append("generalId", generalId)
-    formData.append("file", blob, fileName)
-
-    const url = `${this.baseUrl}/UploadFile.ashx?access_token=${this.token}`
-    console.error(JSON.stringify({ "UPLOAD_URL": this.redact(url) }, null, 2))
-
-    try {
-      const response = await fetch(url, {
-        method: "POST",
-        body: formData,
-      })
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`)
-      }
-      return await response.text()
-    } catch (error) {
-      console.error("Error uploading file:", error)
-      return null
-    }
+  async addAttachedFile(generalId: string, source: ({ filePath: string } | { fileContent: string; fileName: string }) & { mimeType?: string }): Promise<string> {
+    const fileName = 'filePath' in source ? basename(source.filePath) : source.fileName
+    const blob = new Blob(['filePath' in source ? readFileSync(source.filePath) : Buffer.from(source.fileContent, 'base64')], { type: source.mimeType || 'application/octet-stream' })
+    const form = new FormData()
+    form.append('generalId', generalId)
+    form.append('file', blob, fileName)
+    return this.http.request<string>('POST', '/UploadFile.ashx', {}, form, true)
   }
 }

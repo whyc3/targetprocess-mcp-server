@@ -8,7 +8,9 @@
     "postbuild": "node chmod.js",
     "prepack": "npm run build",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit",
+    "verify:readonly": "node scripts/verify-readonly.mjs"
   },
   "files": [
     "build"
@@ -26,9 +28,9 @@
     "url": "git@github.com:whyc3/targetprocess-mcp-server.git"
   },
   "engines": {
-    "node": ">=20.x"
+    "node": ">=22.13.0"
   },
-  "version": "2.6.10",
+  "version": "2.8.0",
   "description": "MCP server for Tartget Process",
   "main": "build/index.js",
   "keywords": [
@@ -42,15 +44,21 @@
   "license": "ISC",
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.26.0",
+    "@napi-rs/canvas": "^1.0.13",
     "@types/jsdom": "^27.0.0",
     "@types/node": "^25.2.2",
+    "csv-parse": "^7.0.3",
     "dotenv": "^17.2.4",
+    "fflate": "^0.8.3",
     "jsdom": "^28.0.0",
+    "pdfjs-dist": "^6.4.299",
     "rimraf": "^6.1.2",
+    "sharp": "^0.35.5",
     "shx": "^0.4.0",
+    "tesseract.js": "^7.0.0",
     "tsup": "^8.5.0",
     "typescript": "^5.9.3",
-    "zod": "^3.25.76"
+    "zod": "^4.6.7"
   },
   "homepage": "https://github.com/whyc3/targetprocess-mcp-server.git#readme",
   "devDependencies": {

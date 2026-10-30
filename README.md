@@ -33,6 +33,12 @@ It acts as a **bridge between LLM agents and the Targetprocess API**, providing:
 - "remove manual tag from TP test cases 145789 and 145790"
 
 ---
+## Test management extension (2.7.0)
+
+Case/run creation, execution results, screenshots, defect links, lifecycle controls,
+reporting, case reuse, and ordering are described in [Test management](doc/TEST_MANAGEMENT.md).
+Build this checkout and reconnect your MCP client to enable the new tools.
+
 ## Available tools:
 Releases
 - `get_current_releases` — List all current releases (no params needed)
@@ -113,7 +119,7 @@ Cards — Write
 - `update_feature` — Update a feature card with data provided from user input; pass only the fields to change (id, optional title, optional description, optional epicId, optional releaseId, optional projectId, optional teamId, optional entityStateId, optional tags, optional teamIterationId)  
 - `create_test_plan` — Create a test plan linked to a UserStory, Bug, or Feature (title, resourceId, optional resourceType, optional description/startDate/endDate)
 > [!NOTE]
-> requires `TP_PROJECT_ID`,
+> derives the project from the linked card,
 - `create_nested_test_plan` — Create a suite/module sub plan below an existing test plan (title, parentTestPlanId, optional description)
 - `unlink_child_test_plan_from_parent` — Detach one direct child plan from one parent without deleting either plan or any cases (parentTestPlanId, childTestPlanId, optional dryRun; defaults to `true`). Verifies the child plan and its direct cases remain.
 - `move_test_cases_to_sub_plan` — Safely move selected direct test cases from a parent plan to one of its sub plans (sourceTestPlanId, destinationTestPlanId, testCaseIds, optional dryRun; defaults to `true`)
@@ -322,3 +328,7 @@ npx vitest            # watch mode
 | `test_plan_tools.test.ts` | `get_test_plan_by_id`, `get_test_plan_test_cases_by_id`, `get_test_cases_by_id`, `get_test_plan_test_cases_with_steps_by_id`, `get_test_case_by_id`, `update_test_case_by_id`, `delete_test_case_by_id`, `add_test_case_step_by_id`, `update_test_case_step_by_id`, `delete_test_case_step_by_id` |
 | `test_case_tools.test.ts` | `get_test_case_by_id`, `update_test_case_by_id`, `add_test_case_step_by_id`, `update_test_case_step_by_id`, `delete_test_case_step_by_id` |
 | `workflow_tools.test.ts` | `get_processes`, `get_process_workflows`, `get_bug_workflows`, `get_user_story_workflows`, `get_relation_types`, `get_version` |
+
+## MCP 2.8.0
+
+See [delivery checklist, tools, configuration, verification, and reconnect instructions](doc/MCP_2_8_DELIVERY.md) for history, QA workload, complete discovery, attachment CRUD/processing, and mutation-verification fixes.

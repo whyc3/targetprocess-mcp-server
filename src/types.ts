@@ -59,6 +59,11 @@ export type SearchOrderField = "Name" | "CreateDate" | "ModifyDate" | "LastComme
 export type SearchOrderDirection = "asc" | "desc"
 
 export interface SearchFilters {
+  teamId?: string
+  iterationId?: string
+  teamIterationId?: string
+  testerId?: string
+  roleId?: string
   entityStateName?: string
   projectId?: string
   ownerId?: string
@@ -91,6 +96,11 @@ export interface GeneralSearchResponse {
 }
 
 export interface General {
+  Iteration?: any
+  TeamIteration?: any
+  Assignments?: any
+  RoleEfforts?: any
+  AssignedTeams?: any
   ResourceType: string
   Id: number
   Name: string
@@ -129,6 +139,11 @@ export interface Comment {
 }
 
 export interface UserStory {
+  Iteration?: any
+  TeamIteration?: any
+  Assignments?: any
+  RoleEfforts?: any
+  AssignedTeams?: any
   ResourceType: string
   Id: number
   Name: string
@@ -160,8 +175,6 @@ export interface UserStory {
   PlannedEndDate: any
   Units: string
   Release: Release
-  Iteration: any
-  TeamIteration: any
   Team: Team
   Priority: Priority
   EntityState: EntityState
@@ -226,6 +239,11 @@ export interface Task {
 }
 
 export interface Bug {
+  Iteration?: any
+  TeamIteration?: any
+  Assignments?: any
+  RoleEfforts?: any
+  AssignedTeams?: any
   ResourceType: string
   Id: number
   Name: string
@@ -257,8 +275,6 @@ export interface Bug {
   PlannedEndDate: any
   Units: string
   Release: any
-  Iteration: any
-  TeamIteration: any
   Team: Team
   Priority: Priority
   EntityState: EntityState
@@ -285,6 +301,11 @@ export interface Severity {
 }
 
 export interface Feature {
+  Iteration?: any
+  TeamIteration?: any
+  Assignments?: any
+  RoleEfforts?: any
+  AssignedTeams?: any
   ResourceType: string
   Id: number
   Name: string
@@ -316,8 +337,6 @@ export interface Feature {
   PlannedEndDate: any
   Units: string
   Release: any
-  Iteration: any
-  TeamIteration: any
   Team: Team
   Priority: Priority
   EntityState: EntityState
@@ -478,8 +497,8 @@ export interface TestPlan {
   PlannedEndDate: any
   Units: string
   Release: any
-  Iteration: any
-  TeamIteration: any
+  Iteration?: any
+  TeamIteration?: any
   Team: any
   Priority: Priority
   EntityState: EntityState
